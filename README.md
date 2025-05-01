@@ -11,7 +11,7 @@ A simple and efficient bookmarks manager built with FastAPI/Flask that allows us
 - RESTful API for managing bookmarks.
 
 ## Project Structure
-
+```
 bookmark-manager/
 |-- app/
 |   |-- routes/
@@ -53,7 +53,7 @@ bookmark-manager/
 |-- README.md
 |-- requirements.txt
 `-- bookmarks.db
-
+```
 ## Installation
 
 1. Clone the repository:
