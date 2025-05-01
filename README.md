@@ -12,7 +12,7 @@ A simple and efficient bookmarks manager built with FastAPI/Flask that allows us
 
 ## Project Structure
 
-bookmarks-manager/
+bookmark-manager/
 ├── app/
 │   ├── routes/
 │   │   └── bookmarks.py
