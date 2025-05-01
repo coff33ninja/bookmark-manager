@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+sqlalchemy
+httpx
+beautifulsoup4
+pydantic
+jinja2
+python-dotenv
+pytest
+pytest-asyncio
+pillow
+requests
+selenium
+cloudscraper
+metadata_parser
+python-multipart

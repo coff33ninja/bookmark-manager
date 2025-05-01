@@ -1,0 +1,57 @@
+// This file contains the JavaScript code for handling user interactions, such as adding bookmarks and fetching metadata.
+
+document.addEventListener('DOMContentLoaded', function() {
+    const bookmarkForm = document.getElementById('bookmark-form');
+    const bookmarkList = document.getElementById('bookmark-list');
+
+    bookmarkForm.addEventListener('submit', async function(event) {
+        event.preventDefault();
+        const urlInput = document.getElementById('url-input');
+        const titleInput = document.getElementById('title-input');
+        const descriptionInput = document.getElementById('description-input');
+        const iconInput = document.getElementById('icon-input');
+
+        const bookmarkData = {
+            url: urlInput.value,
+            title: titleInput.value,
+            description: descriptionInput.value,
+            icon: iconInput.value
+        };
+
+        const response = await fetch('/bookmarks', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(bookmarkData)
+        });
+
+        if (response.ok) {
+            const newBookmark = await response.json();
+            addBookmarkToList(newBookmark);
+            bookmarkForm.reset();
+        } else {
+            console.error('Failed to add bookmark');
+        }
+    });
+
+    async function fetchBookmarks() {
+        const response = await fetch('/bookmarks');
+        const bookmarks = await response.json();
+        bookmarks.forEach(addBookmarkToList);
+    }
+
+    function addBookmarkToList(bookmark) {
+        const listItem = document.createElement('li');
+        listItem.innerHTML = `
+            <a href="${bookmark.url}" target="_blank">
+                <img src="${bookmark.webicon || '/static/favicon.ico'}" alt="${bookmark.title} icon" />
+                <strong>${bookmark.title}</strong>
+                <p>${bookmark.description}</p>
+            </a>
+        `;
+        bookmarkList.appendChild(listItem);
+    }
+
+    fetchBookmarks();
+});

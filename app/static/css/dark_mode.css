@@ -1,0 +1,103 @@
+body.dark-mode {
+    background-color: #121212;
+    color: #ffffff;
+}
+
+.navbar-dark {
+    background-color: #1f1f1f !important;
+}
+
+.card.bg-dark {
+    background-color: #1f1f1f !important;
+    border: 1px solid #333;
+}
+
+.form-control.bg-dark {
+    background-color: #2a2a2a;
+    border-color: #444;
+    color: #ffffff;
+}
+
+.form-control.bg-dark:focus {
+    background-color: #2a2a2a;
+    border-color: #bb86fc;
+    color: #ffffff;
+    box-shadow: 0 0 0 0.2rem rgba(187, 134, 252, 0.25);
+}
+
+.btn-close-white {
+    filter: invert(1);
+}
+
+.bookmark-actions {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    display: flex;
+    gap: 10px;
+}
+
+.bookmark-actions span {
+    cursor: pointer;
+    font-size: 0.9rem;
+    padding: 5px;
+    background: rgba(0, 0, 0, 0.5);
+    border-radius: 4px;
+}
+
+.bookmark-actions span:hover {
+    background: #bb86fc;
+    color: #000;
+}
+
+.card-img-wrapper {
+    height: 150px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+    background-color: #2a2a2a;
+}
+
+.card-img-top {
+    max-height: 150px;
+    max-width: 100%;
+    height: auto;
+    object-fit: contain;
+    padding: 0;
+    image-rendering: crisp-edges;
+    image-rendering: pixelated;
+}
+
+#bookmark-popup {
+    position: absolute;
+    background: #333;
+    color: #fff;
+    padding: 10px;
+    border-radius: 5px;
+    max-width: 300px;
+    z-index: 1000;
+    display: none;
+    pointer-events: none;
+}
+
+/* Shrink edit modal font size and width */
+#editBookmarkModal .modal-content {
+    font-size: 0.6rem !important;
+    max-width: 320px !important;
+    margin: auto !important;
+}
+#editBookmarkModal .modal-body {
+    padding: 0.6rem 0.6rem !important;
+}
+#editBookmarkModal .form-label {
+    font-size: 0.6rem !important;
+}
+#editBookmarkModal .form-control {
+    font-size: 0.6rem !important;
+    padding: 0.15rem 0.3rem !important;
+}
+#editBookmarkModal .btn {
+    font-size: 0.6rem !important;
+    padding: 0.15rem 0.3rem !important;
+}
