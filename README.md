@@ -13,46 +13,46 @@ A simple and efficient bookmarks manager built with FastAPI/Flask that allows us
 ## Project Structure
 
 bookmark-manager/
-├── app/
-│   ├── routes/
-│   │   └── bookmarks.py
-│   ├── services/
-│   │   ├── cloudscraper_meta.py
-│   │   ├── favicon_generator.py
-│   │   ├── geckodriver_setup.py
-│   │   ├── metadata_fetcher.py
-│   │   ├── scrape_meta.py
-│   │   ├── scrape_meta_method.py
-│   │   ├── scrape_meta_style.py
-│   │   └── selenium_meta.py
-│   ├── templates/
-│   │   └── index.html
-│   ├── static/
-│   │   ├── css/
-│   │   │   └── dark_mode.css
-│   │   ├── icons/
-│   │   │   ├── chatgpt_com_favicon.ico
-│   │   │   ├── chatgpt_comfavicon.ico
-│   │   │   ├── fmhy_net_favicon.ico
-│   │   │   ├── grok_com_favicon.png
-│   │   │   ├── paimon_moe_favicon.ico
-│   │   │   ├── theresanaiforthat_com_apple-touch-icon.png
-│   │   │   ├── theresanaiforthat_com_favicon.ico
-│   │   │   └── www_riffusion_com_apple-touch-icon.png
-│   │   ├── favicon.ico
-│   │   ├── favicon.svg
-│   │   └── js/
-├── drivers/
-│   └── geckodriver.exe
-├── tests/
-│   ├── test_bookmarks.py
-│   └── test_main.py
-├── app/
-│   ├── main.py
-│   └── models.py
-├── README.md
-├── requirements.txt
-└── bookmarks.db
+|-- app/
+|   |-- routes/
+|   |   `-- bookmarks.py
+|   |-- services/
+|   |   |-- cloudscraper_meta.py
+|   |   |-- favicon_generator.py
+|   |   |-- geckodriver_setup.py
+|   |   |-- metadata_fetcher.py
+|   |   |-- scrape_meta.py
+|   |   |-- scrape_meta_method.py
+|   |   |-- scrape_meta_style.py
+|   |   `-- selenium_meta.py
+|   |-- templates/
+|   |   `-- index.html
+|   |-- static/
+|   |   |-- css/
+|   |   |   `-- dark_mode.css
+|   |   |-- icons/
+|   |   |   |-- chatgpt_com_favicon.ico
+|   |   |   |-- chatgpt_comfavicon.ico
+|   |   |   |-- fmhy_net_favicon.ico
+|   |   |   |-- grok_com_favicon.png
+|   |   |   |-- paimon_moe_favicon.ico
+|   |   |   |-- theresanaiforthat_com_apple-touch-icon.png
+|   |   |   |-- theresanaiforthat_com_favicon.ico
+|   |   |   `-- www_riffusion_com_apple-touch-icon.png
+|   |   |-- favicon.ico
+|   |   |-- favicon.svg
+|   |   `-- js/
+|-- drivers/
+|   `-- geckodriver.exe
+|-- tests/
+|   |-- test_bookmarks.py
+|   `-- test_main.py
+|-- app/
+|   |-- main.py
+|   `-- models.py
+|-- README.md
+|-- requirements.txt
+`-- bookmarks.db
 
 ## Installation
 
