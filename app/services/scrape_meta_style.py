@@ -50,14 +50,21 @@ def fetch_metadata(url: str) -> dict:
         scraper = cloudscraper.create_scraper()
         html = fetch_html(url, scraper)
         meta = extract_metadata(html)
-        metadata = {"title": meta.get("title", "") or meta.get("og:title", "") or "", "description": meta.get("description", "") or meta.get("og:description", "") or "", "webicon": DEFAULT_FAVICON, "icon_candidates": []}
+        metadata = {
+            "title": meta.get("title", "") or meta.get("og:title", "") or "",
+            "description": meta.get("description", "") or meta.get("og:description", "") or "",
+            "webicon": DEFAULT_FAVICON,
+            "icon_candidates": []
+        }
         parsed = urlparse(url)
         base_name = parsed.netloc.replace(".", "_")
         ICON_DIR.mkdir(parents=True, exist_ok=True)
         local_candidates = []
 
-        # Collect all possible icon candidates from the HTML
+        # Parse HTML once
         soup = BeautifulSoup(html, "html.parser")
+
+        # Collect all possible icon candidates from the HTML
         icon_candidates = []
         # Standard icons
         for rel in ["icon", "shortcut icon"]:
@@ -71,12 +78,13 @@ def fetch_metadata(url: str) -> dict:
         # Open Graph image
         og_image = soup.find("meta", attrs={"property": "og:image"})
         if og_image and og_image.get("content"):
-            icon_candidates.append(og_image["content"])
+            icon_candidates.append(urljoin(url, og_image["content"]))
         # Fallback to /favicon.ico
         icon_candidates.append(urljoin(url, "/favicon.ico"))
         # Remove duplicates
         seen = set()
         icon_candidates = [x for x in icon_candidates if not (x in seen or seen.add(x))]
+
         # Try all candidates until one works
         for icon_url in icon_candidates:
             if not icon_url:
@@ -90,12 +98,15 @@ def fetch_metadata(url: str) -> dict:
                 local_candidates.append(static_icon_path)
                 metadata["favicon_file"] = filename
                 break
+
+        # Fallback: DuckDuckGo favicon
         if not local_candidates:
             domain = parsed.netloc
             duckduckgo_icon = fetch_duckduckgo_favicon(domain)
             if duckduckgo_icon != DEFAULT_FAVICON:
                 local_candidates.append(duckduckgo_icon)
                 metadata["favicon_file"] = f"{domain.replace('.', '_')}_duckduckgo.ico"
+
         metadata["webicon"] = local_candidates[0] if local_candidates else DEFAULT_FAVICON
         metadata["icon_candidates"] = local_candidates
 
@@ -105,7 +116,7 @@ def fetch_metadata(url: str) -> dict:
         return None
     except Exception as e:
         logger.error(f"scrape_meta_style failed for {url}: {e}")
-        return None
+        return {"error": str(e)}
 
 def main():
     parser = argparse.ArgumentParser(description="Scrape metadata and download favicon via Cloudscraper (style module).")
