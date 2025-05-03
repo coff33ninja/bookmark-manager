@@ -1,10 +1,8 @@
-from fastapi import APIRouter, HTTPException, Depends, File, UploadFile
+from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from app.models import Bookmark, BookmarkSchema, SessionLocal, BookmarkCreate
 from datetime import datetime
 from app.services.metadata_fetcher import fetch_metadata_combined
-from app.services.manual_icon import save_manual_icon
-from app.services.page_status import is_page_online
 from pydantic import BaseModel
 import json
 import logging
@@ -84,8 +82,6 @@ def update_bookmark(bookmark_id: int, data: dict, db: Session = Depends(get_db))
         bookmark_instance.is_favorite = data["is_favorite"]
     if "webicon" in data:
         bookmark_instance.webicon = data["webicon"]
-    if "url" in data:
-        bookmark_instance.url = data["url"]
     bookmark_instance.updated_at = datetime.now()
 
     db.commit()
@@ -154,22 +150,3 @@ def search_bookmarks(query: str, db: Session = Depends(get_db)):
     )
     logger.info(f"Search query '{query}' returned {len(bookmarks)} results")
     return bookmarks
-
-
-@router.post("/bookmarks/{bookmark_id}/icon")
-def upload_bookmark_icon(bookmark_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
-    bookmark_instance = db.query(Bookmark).filter(Bookmark.id == bookmark_id).first()
-    if not bookmark_instance:
-        raise HTTPException(status_code=404, detail="Bookmark not found")
-    icon_path = save_manual_icon(bookmark_id, file)
-    bookmark_instance.webicon = icon_path
-    db.commit()
-    db.refresh(bookmark_instance)
-    return {"webicon": icon_path}
-
-
-@router.get("/page-status")
-def page_status(url: str):
-    """Check if a page is online (HTTP 200)."""
-    online = is_page_online(url)
-    return {"online": online}
