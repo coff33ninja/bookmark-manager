@@ -70,34 +70,39 @@ A simple and efficient bookmarks manager built with FastAPI/Flask that allows us
 - `POST /suggest-tags` - Suggest tags for a bookmark based on its content.
 
 ## Project Structure
+
 ```
 .gitignore
 README.md
 requirements.txt
 bookmarks.db
 app/
-|-- main.py
-|-- models.py
-|-- routes/
-|   `-- bookmarks.py
-|-- services/
-|   |-- favicon_generator.py
-|   |-- metadata_fetcher.py
-|   |-- page_status.py
-|-- static/
-|   |-- favicon.ico
-|   |-- favicon.svg
-|   |-- css/
-|   |   `-- dark_mode.css
-|   |-- js/
-templates/
-`-- drivers/
-    `-- geckodriver.exe
-tests/
-|-- test_bookmarks.py
-`-- test_main.py
+|-- main.py                # Main application entry point and configuration
+|-- models.py              # Data models and database setup
+|-- routes/                # API route handlers grouped by resource
+|   `-- bookmarks.py       # Bookmarks API endpoints and logic
+|-- services/              # Business logic and utility services
+|   |-- metadata/          # Metadata fetching services (e.g., metadata_fetcher.py)
+|   |-- icons/             # Icon generation and management services
+|   |-- network/           # Network detection utilities
+|   |-- setup/             # Setup utilities (e.g., geckodriver setup)
+|-- static/                # Static assets like icons, CSS, JS
+|-- templates/             # HTML templates for frontend
+drivers/                   # External drivers like geckodriver for Selenium
+tests/                     # Unit and integration tests
 ```
-`-- test_main.py
+
+## Project Status
+
+This project is far from complete and is under active development. Planned improvements include:
+
+- Better modularization of services and utilities.
+- More comprehensive test coverage.
+- UI enhancements and additional frontend features.
+- Additional API endpoints and improved metadata extraction.
+- Performance optimizations and bug fixes.
+
+Contributions and suggestions are welcome!
 
 ## Testing
 
