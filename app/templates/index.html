@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bookmarks Manager</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <link rel="stylesheet" href="/static/css/dark_mode.css">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha3/dist/js/bootstrap.bundle.min.js"></script>
 </head>
@@ -17,15 +18,39 @@
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav ms-auto">
-                    <li class="nav-item">
-                        <button id="toggle-view" class="btn btn-outline-light">Switch to Flat View</button>
-                    </li>
-                </ul>
-            </div>
-        </div>
+                <!-- Add URL Form in Navbar -->
+                <form id="bookmark-form" class="d-flex me-auto ms-3">
+                    <div class="input-group">
+                        <input type="url" id="url" class="form-control bg-dark text-light" placeholder="Enter URL" required>
+                        <button class="btn btn-light" type="submit">Add</button>
+                    </div>
+                    <div id="tag-suggestions" class="position-absolute" style="font-size:0.8rem;color:#bb86fc;margin-top:40px;"></div>
+                </form>
+                
+                <!-- Action Buttons -->
+                <div class="navbar-nav ms-auto">
+                    <button id="toggle-view" class="btn btn-outline-light me-2" title="Toggle View">
+                        <i class="bi bi-grid-3x3-gap"></i>
+                                </button>
+                    <button id="refresh-bookmarks" class="btn btn-outline-light" title="Refresh">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                            </div>
+                        </div>
+                    </div>
     </nav>
 
+    <div class="container mt-5">
+        <!-- Bookmarks List -->
+        <div id="bookmarks-list">
+            <h2 class="text-light">Your Bookmarks</h2>
+            <div id="bookmarks-container" class="g-1">
+                <div id="bookmarks-status" class="text-light">Loading bookmarks...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Keep existing modals and other elements -->
     <!-- Edit Bookmark Modal -->
     <div class="modal fade" id="editBookmarkModal" tabindex="-1" aria-labelledby="editBookmarkModalLabel" aria-hidden="true">
         <div class="modal-dialog">
@@ -33,13 +58,13 @@
                 <div class="modal-header">
                     <h5 class="modal-title" id="editBookmarkModalLabel">Edit Bookmark</h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
+                            </div>
                 <div class="modal-body">
                     <form id="edit-bookmark-form">
                         <div class="mb-3">
                             <label for="edit-title" class="form-label">Title</label>
                             <input type="text" class="form-control bg-dark text-light" id="edit-title" required>
-                        </div>
+                            </div>
                         <div class="mb-3">
                             <label for="edit-description" class="form-label">Description</label>
                             <textarea class="form-control bg-dark text-light" id="edit-description" rows="3"></textarea>
@@ -61,16 +86,16 @@
                         </div>
                         <div class="mb-3">
                             <button type="button" class="btn btn-info" id="update-metadata">Update Metadata</button>
-                        </div>
+                    </div>
                         <div class="mb-3">
                             <label for="edit-extra-metadata" class="form-label">Extra Metadata</label>
                             <textarea class="form-control bg-dark text-light" id="edit-extra-metadata" rows="3" disabled></textarea>
-                        </div>
+                    </div>
                         <div class="mb-3 d-flex justify-content-between align-items-center">
                             <button type="button" class="btn btn-secondary" id="check-page-status">Check Page Status</button>
                             <span id="page-status-result" class="ms-2"></span>
                             <button type="submit" class="btn btn-primary ms-auto">Save Changes</button>
-                        </div>
+                </div>
                     </form>
                 </div>
             </div>
@@ -98,7 +123,7 @@
 
     <div class="container mt-5">
         <div class="row mb-4">
-            <div class="col-md-6">
+            <div class="col-md-12">
                 <form id="search-form">
                     <div class="input-group">
                         <input type="text" id="search-query" class="form-control bg-dark text-light" placeholder="Search bookmarks" required>
@@ -106,19 +131,10 @@
                     </div>
                 </form>
             </div>
-            <div class="col-md-6">
-                <form id="bookmark-form">
-                    <div class="input-group">
-                        <input type="url" id="url" class="form-control bg-dark text-light" placeholder="Enter URL" required>
-                        <button class="btn btn-light" type="submit">Add</button>
-                    </div>
-                    <div id="tag-suggestions" style="font-size:0.8rem;color:#bb86fc;margin-top:5px;"></div>
-                </form>
-            </div>
         </div>
         <div id="bookmarks-list">
             <h2 class="text-light">Your Bookmarks</h2>
-<div id="bookmarks-container" class="g-1">
+            <div id="bookmarks-container" class="g-1">
                 <div id="bookmarks-status" class="text-light">Loading bookmarks...</div>
             </div>
         </div>
@@ -144,7 +160,6 @@
         }
 
         const bookmarkForm = document.getElementById('bookmark-form');
-        const searchForm = document.getElementById('search-form');
         const bookmarksContainer = document.getElementById('bookmarks-container');
         const bookmarksStatus = document.getElementById('bookmarks-status');
         const popup = document.getElementById('bookmark-popup');
@@ -162,20 +177,20 @@
         let isCategorizedView = true;
 
         async function fetchTagSuggestions(title, description, url) {
-            try {
+                try {
                 const response = await fetch('/suggest-tags', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                        headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ title, description, url })
-                });
-                const data = await response.json();
+                    });
+                        const data = await response.json();
                 if (!response.ok) throw new Error(data.message || 'Failed to fetch tag suggestions');
                 return data.tags || [];
-            } catch (error) {
+                    } catch (error) {
                 console.error('Tag suggestion error:', error);
                 return [];
-            }
-        }
+                    }
+                    }
 
         function renderTagSuggestions(tags, container, tagsInput) {
             container.innerHTML = tags.length > 0
@@ -188,9 +203,9 @@
                         currentTags.push(span.textContent);
                         if (tagsInput) {
                             tagsInput.value = currentTags.join(', ');
-                        }
                     }
-                });
+                }
+            });
                 span.addEventListener('mouseover', () => {
                     span.style.background = '#bb86fc';
                 });
@@ -211,7 +226,6 @@
                 });
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.detail || 'Failed to fetch metadata');
-
                 const tags = await fetchTagSuggestions(data.title || '', data.description || '', url);
                 renderTagSuggestions(tags, tagSuggestions, null);
 
@@ -227,7 +241,7 @@
                         tags: tags,
                         is_favorite: false
                     })
-                });
+        });
                 if (!createResp.ok) {
                     const errorData = await createResp.json().catch(() => ({}));
                     throw new Error(errorData.detail || 'Failed to add bookmark');
@@ -249,7 +263,7 @@
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ url })
-                    });
+        });
                     const data = await response.json();
                     if (response.ok) {
                         const tags = await fetchTagSuggestions(data.title || '', data.description || '', url);
@@ -259,7 +273,7 @@
                     console.error('Tag suggestion on focus error:', error);
                 }
             }
-        });
+    });
 
         async function loadBookmarks() {
             try {
@@ -303,9 +317,9 @@
                         const categoryContainer = section.querySelector('.category-container');
                         category.bookmarks.forEach(bookmark => {
                             renderBookmarkCard(bookmark, categoryContainer);
-                        });
+        });
                         bookmarksContainer.appendChild(section);
-                    });
+    });
                 } else {
                     const section = document.createElement('section');
                     section.className = 'mb-4';
@@ -323,7 +337,7 @@
             }
         }
 
-function renderBookmarkCard(bookmark, container) {
+        function renderBookmarkCard(bookmark, container) {
             bookmark.tags = Array.isArray(bookmark.tags) ? bookmark.tags : [];
             bookmark.icon_candidates = Array.isArray(bookmark.icon_candidates) ? bookmark.icon_candidates : [bookmark.webicon || '/static/favicon.ico'];
             const card = document.createElement('div');
@@ -586,48 +600,18 @@ function renderBookmarkCard(bookmark, container) {
             }
         });
 
-        searchForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const query = document.getElementById('search-query').value;
-            try {
-                bookmarksStatus.textContent = 'Searching bookmarks...';
-                const response = await fetch(`/search?query=${encodeURIComponent(query)}`);
-                const rawText = await response.text();
-                let results;
-                try {
-                    results = JSON.parse(rawText);
-                } catch (e) {
-                    throw new Error('Invalid JSON response: ' + e.message);
-                }
-                if (!response.ok) throw new Error('Failed to search bookmarks');
-                bookmarksContainer.innerHTML = '';
-                if (results.length === 0) {
-                    bookmarksStatus.textContent = 'No bookmarks found';
-                    return;
-                }
-                bookmarksStatus.textContent = '';
-                const section = document.createElement('section');
-                section.className = 'mb-4';
-                section.innerHTML = `<h3 class="text-light">Search Results</h3><div class="row g-4 category-container"></div>`;
-                const searchContainer = section.querySelector('.category-container');
-                results.forEach(result => {
-                    renderBookmarkCard(result, searchContainer);
-                });
-                bookmarksContainer.appendChild(section);
-            } catch (error) {
-                console.error('Search bookmarks error:', error);
-                bookmarksStatus.textContent = 'Error searching bookmarks: ' + error.message;
-                bookmarksStatus.style.color = 'red';
-            }
-        });
-
-        toggleViewBtn.addEventListener('click', () => {
+        document.getElementById('toggle-view').addEventListener('click', () => {
             isCategorizedView = !isCategorizedView;
             toggleViewBtn.textContent = isCategorizedView ? 'Switch to Flat View' : 'Switch to Categorized View';
             loadBookmarks();
         });
 
         loadBookmarks();
+
+        // Add event listener for refresh button
+        document.getElementById('refresh-bookmarks').addEventListener('click', function() {
+            loadBookmarks();
+        });
     });
     </script>
 </body>

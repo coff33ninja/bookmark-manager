@@ -5,6 +5,53 @@ body.dark-mode {
 
 .navbar-dark {
     background-color: #1f1f1f !important;
+    padding: 1rem;
+}
+
+#bookmark-form {
+    flex-grow: 1;
+    max-width: 600px;
+    position: relative;
+}
+
+#bookmark-form .input-group {
+    width: 100%;
+}
+
+.navbar .btn-outline-light {
+    padding: 0.375rem 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.navbar .btn-outline-light i {
+    font-size: 1.2rem;
+}
+
+#tag-suggestions {
+    z-index: 1000;
+    background-color: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 4px;
+    padding: 0.5rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+@media (max-width: 991.98px) {
+    #bookmark-form {
+        margin: 1rem 0;
+        max-width: 100%;
+    }
+
+    .navbar-nav {
+        margin-top: 1rem;
+}
+
+    .navbar .btn-outline-light {
+        margin: 0.5rem 0;
+        width: 100%;
+    }
 }
 
 .card.bg-dark {
