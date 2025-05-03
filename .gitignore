@@ -119,3 +119,4 @@ bookmarks.db
 drivers/geckodriver.exe
 /app/static/icons
 /app/static/recycled_bookmarks
+/app/static/recycled_icons
