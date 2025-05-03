@@ -118,3 +118,4 @@ bookmarks.db
 # Driver executables
 drivers/geckodriver.exe
 /app/static/icons
+/app/static/recycled_bookmarks

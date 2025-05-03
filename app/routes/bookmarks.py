@@ -748,6 +748,66 @@ def delete_bookmark(bookmark_id: int, db: Session = Depends(get_db)):
             logger.error(f"Bookmark {bookmark_id} not found")
             raise HTTPException(status_code=404, detail="Bookmark not found")
 
+        # Serialize bookmark metadata to JSON
+        bookmark_data = {
+            "id": bookmark_instance.id,
+            "url": bookmark_instance.url or "",
+            "title": bookmark_instance.title or "",
+            "description": bookmark_instance.description or "",
+            "webicon": bookmark_instance.webicon or "/static/favicon.ico",
+            "icon_candidates": (
+                bookmark_instance.icon_candidates.split(",")
+                if isinstance(bookmark_instance.icon_candidates, str)
+                and bookmark_instance.icon_candidates
+                else [bookmark_instance.webicon or "/static/favicon.ico"]
+            ),
+            "extra_metadata": (
+                json.loads(bookmark_instance.extra_metadata)
+                if bookmark_instance.extra_metadata
+                else {}
+            ),
+            "tags": (
+                bookmark_instance.tags.split(",")
+                if isinstance(bookmark_instance.tags, str) and bookmark_instance.tags
+                else []
+            ),
+            "is_favorite": bool(bookmark_instance.is_favorite),
+            "created_at": (
+                bookmark_instance.created_at.isoformat()
+                if bookmark_instance.created_at
+                else None
+            ),
+            "updated_at": (
+                bookmark_instance.updated_at.isoformat()
+                if bookmark_instance.updated_at
+                else None
+            ),
+            "last_used": (
+                bookmark_instance.last_used.isoformat()
+                if bookmark_instance.last_used
+                else None
+            ),
+            "click_count": int(bookmark_instance.click_count or 0),
+            "deleted_at": datetime.now().isoformat(),
+        }
+
+        # Save metadata to JSON file
+        recycled_bookmarks_dir = Path("app/static/recycled_bookmarks")
+        recycled_bookmarks_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_filename = f"{bookmark_id}_{timestamp}.json"
+        backup_path = recycled_bookmarks_dir / backup_filename
+        try:
+            with backup_path.open("w") as f:
+                json.dump(bookmark_data, f, indent=2)
+            logger.info(f"Saved deleted bookmark metadata to {backup_path}")
+        except Exception as e:
+            logger.error(
+                f"Failed to save deleted bookmark metadata to {backup_path}: {str(e)}"
+            )
+            # Continue with deletion even if backup fails
+
+        # Move associated icons to recycled_icons
         domain = urlparse(bookmark_instance.url).netloc.replace(".", "_")
         recycle_dir = Path("app/static/recycled_icons") / domain
         recycle_dir.mkdir(parents=True, exist_ok=True)
@@ -780,9 +840,10 @@ def delete_bookmark(bookmark_id: int, db: Session = Depends(get_db)):
             except Exception as e:
                 logger.warning(f"Failed to move icon {icon_path}: {str(e)}")
 
+        # Delete bookmark from database
         db.delete(bookmark_instance)
         db.commit()
-        logger.info(f"Deleted bookmark {bookmark_id}")
+        logger.info(f"Deleted bookmark {bookmark_id} from database")
         return {"message": "Bookmark deleted successfully"}
     except Exception as e:
         logger.error(f"Error deleting bookmark {bookmark_id}: {str(e)}", exc_info=True)
