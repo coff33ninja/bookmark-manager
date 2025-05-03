@@ -12,7 +12,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from pydantic import BaseModel
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 Base = declarative_base()
 
@@ -25,11 +25,12 @@ class Bookmark(Base):
     title = Column(String, nullable=True)
     description = Column(Text, nullable=True)
     webicon = Column(String, nullable=True)
+    icon_candidates = Column(Text, nullable=True)  # Comma-separated list
     extra_metadata = Column(Text, nullable=True)
     last_used = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    tags = Column(Text, nullable=True)
+    tags = Column(Text, nullable=True)  # Comma-separated list
     is_favorite = Column(Boolean, default=False)
     click_count = Column(Integer, default=0)
 
@@ -46,13 +47,17 @@ class BookmarkSchema(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     webicon: Optional[str] = None
+    icon_candidates: Optional[List[str]] = []
     extra_metadata: Optional[dict] = None
     last_used: Optional[datetime] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
-    tags: Optional[list[str]] = None
+    tags: Optional[List[str]] = None
     is_favorite: bool = False
     click_count: int = 0
+
+    class Config:
+        from_attributes = True
 
 
 class BookmarkCreate(BaseModel):
@@ -61,7 +66,7 @@ class BookmarkCreate(BaseModel):
     description: Optional[str] = None
     webicon: Optional[str] = None
     extra_metadata: Optional[dict] = None
-    tags: Optional[list[str]] = None
+    tags: Optional[List[str]] = None
     is_favorite: bool = False
 
 

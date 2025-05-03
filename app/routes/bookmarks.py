@@ -7,10 +7,16 @@ from pydantic import BaseModel
 import json
 import logging
 from pathlib import Path
+from typing import List
 
 router = APIRouter()
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    filename="uvicorn.log",
+    filemode="a",
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 logger = logging.getLogger(__name__)
 
 
@@ -27,20 +33,27 @@ def add_bookmark(bookmark: BookmarkCreate, db: Session = Depends(get_db)):
     try:
         logger.info(f"Adding bookmark: {bookmark.dict()}")
         webicon = bookmark.webicon or "/static/favicon.ico"
-        if webicon.startswith(("http://", "https://")):
+        icon_candidates = []
+        try:
             metadata = fetch_metadata_combined(bookmark.url)
             if "error" not in metadata:
                 webicon = metadata.get("webicon", "/static/favicon.ico")
+                icon_candidates = metadata.get("icon_candidates", [])
             else:
                 logger.warning(
-                    f"Metadata fetch failed for {bookmark.url}, using default icon"
+                    f"Metadata fetch failed for {bookmark.url}: {metadata['error']}"
                 )
+        except Exception as e:
+            logger.error(f"Metadata fetch exception for {bookmark.url}: {str(e)}")
+            webicon = "/static/favicon.ico"
+            icon_candidates = []
 
         bookmark_instance = Bookmark(
             url=bookmark.url,
             title=bookmark.title,
             description=bookmark.description,
             webicon=webicon,
+            icon_candidates=",".join(icon_candidates) if icon_candidates else None,
             extra_metadata=(
                 json.dumps(bookmark.extra_metadata) if bookmark.extra_metadata else None
             ),
@@ -48,59 +61,293 @@ def add_bookmark(bookmark: BookmarkCreate, db: Session = Depends(get_db)):
             is_favorite=bookmark.is_favorite,
             created_at=datetime.now(),
             updated_at=datetime.now(),
+            last_used=None,
+            click_count=0,
         )
         db.add(bookmark_instance)
         db.commit()
         db.refresh(bookmark_instance)
+        logger.info(f"Bookmark added successfully: ID {bookmark_instance.id}")
+        bookmark_instance.tags = (
+            bookmark_instance.tags.split(",") if bookmark_instance.tags else []
+        )
+        bookmark_instance.icon_candidates = (
+            bookmark_instance.icon_candidates.split(",")
+            if bookmark_instance.icon_candidates
+            else []
+        )
         return bookmark_instance
     except Exception as e:
-        logger.error(f"Error adding bookmark: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error adding bookmark: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to add bookmark: {str(e)}")
 
 
-@router.get("/bookmarks", response_model=list[BookmarkSchema])
+@router.get("/bookmarks", response_model=List[BookmarkSchema])
 def get_bookmarks(db: Session = Depends(get_db)):
-    bookmarks = db.query(Bookmark).all()
-    logger.info(f"Fetched {len(bookmarks)} bookmarks")
-    return bookmarks
+    try:
+        logger.info("Fetching all bookmarks")
+        bookmarks = db.query(Bookmark).all()
+        logger.info(f"Fetched {len(bookmarks)} bookmarks")
+        result = []
+        for bookmark in bookmarks:
+            try:
+                # Convert tags and icon_candidates to lists
+                bookmark.tags = (
+                    bookmark.tags.split(",")
+                    if isinstance(bookmark.tags, str) and bookmark.tags
+                    else []
+                )
+                bookmark.icon_candidates = (
+                    bookmark.icon_candidates.split(",")
+                    if isinstance(bookmark.icon_candidates, str)
+                    and bookmark.icon_candidates
+                    else []
+                )
+                # Fetch icon_candidates if missing
+                if not bookmark.icon_candidates:
+                    try:
+                        logger.info(
+                            f"Fetching metadata for bookmark {bookmark.id} with URL {bookmark.url}"
+                        )
+                        metadata = fetch_metadata_combined(bookmark.url)
+                        if "error" not in metadata:
+                            bookmark.icon_candidates = metadata.get(
+                                "icon_candidates", [bookmark.webicon]
+                            )
+                            bookmark.icon_candidates = bookmark.icon_candidates or [
+                                bookmark.webicon
+                            ]
+                            bookmark.icon_candidates = [
+                                str(ic) for ic in bookmark.icon_candidates
+                            ]
+                            bookmark_instance = (
+                                db.query(Bookmark)
+                                .filter(Bookmark.id == bookmark.id)
+                                .first()
+                            )
+                            bookmark_instance.icon_candidates = ",".join(
+                                bookmark.icon_candidates
+                            )
+                            db.commit()
+                            logger.info(
+                                f"Updated icon_candidates for bookmark {bookmark.id}"
+                            )
+                        else:
+                            logger.warning(
+                                f"Metadata fetch failed for {bookmark.url}: {metadata['error']}"
+                            )
+                            bookmark.icon_candidates = [
+                                bookmark.webicon or "/static/favicon.ico"
+                            ]
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to fetch metadata for {bookmark.url}: {str(e)}"
+                        )
+                        bookmark.icon_candidates = [
+                            bookmark.webicon or "/static/favicon.ico"
+                        ]
+                result.append(bookmark)
+            except Exception as e:
+                logger.warning(
+                    f"Skipping bookmark {bookmark.id} due to error: {str(e)}"
+                )
+                continue
+        return result
+    except Exception as e:
+        logger.error(f"Error fetching bookmarks: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch bookmarks")
 
 
 @router.patch("/bookmarks/{bookmark_id}", response_model=BookmarkSchema)
 def update_bookmark(bookmark_id: int, data: dict, db: Session = Depends(get_db)):
-    bookmark_instance = db.query(Bookmark).filter(Bookmark.id == bookmark_id).first()
-    if not bookmark_instance:
-        logger.error(f"Bookmark {bookmark_id} not found")
-        raise HTTPException(status_code=404, detail="Bookmark not found")
+    try:
+        bookmark_instance = (
+            db.query(Bookmark).filter(Bookmark.id == bookmark_id).first()
+        )
+        if not bookmark_instance:
+            logger.error(f"Bookmark {bookmark_id} not found")
+            raise HTTPException(status_code=404, detail="Bookmark not found")
 
-    if "title" in data:
-        bookmark_instance.title = data["title"]
-    if "description" in data:
-        bookmark_instance.description = data["description"]
-    if "tags" in data:
-        bookmark_instance.tags = ",".join(data["tags"]) if data["tags"] else None
-    if "is_favorite" in data:
-        bookmark_instance.is_favorite = data["is_favorite"]
-    if "webicon" in data:
-        bookmark_instance.webicon = data["webicon"]
-    bookmark_instance.updated_at = datetime.now()
+        if "title" in data:
+            bookmark_instance.title = data["title"]
+        if "description" in data:
+            bookmark_instance.description = data["description"]
+        if "tags" in data:
+            bookmark_instance.tags = ",".join(data["tags"]) if data["tags"] else None
+        if "is_favorite" in data:
+            bookmark_instance.is_favorite = data["is_favorite"]
+        if "url" in data:
+            bookmark_instance.url = data["url"]
+        bookmark_instance.updated_at = datetime.now()
 
-    db.commit()
-    db.refresh(bookmark_instance)
-    logger.info(f"Updated bookmark {bookmark_id}")
-    return bookmark_instance
+        db.commit()
+        db.refresh(bookmark_instance)
+        # Convert tags and icon_candidates to lists
+        bookmark_instance.tags = (
+            bookmark_instance.tags.split(",")
+            if isinstance(bookmark_instance.tags, str) and bookmark_instance.tags
+            else []
+        )
+        bookmark_instance.icon_candidates = (
+            bookmark_instance.icon_candidates.split(",")
+            if isinstance(bookmark_instance.icon_candidates, str)
+            and bookmark_instance.icon_candidates
+            else []
+        )
+        # Fetch icon_candidates if missing
+        if not bookmark_instance.icon_candidates:
+            try:
+                metadata = fetch_metadata_combined(bookmark_instance.url)
+                if "error" not in metadata:
+                    bookmark_instance.icon_candidates = metadata.get(
+                        "icon_candidates", [bookmark_instance.webicon]
+                    )
+                    bookmark_instance.icon_candidates = (
+                        bookmark_instance.icon_candidates or [bookmark_instance.webicon]
+                    )
+                    bookmark_instance.icon_candidates = [
+                        str(ic) for ic in bookmark_instance.icon_candidates
+                    ]
+                    bookmark_instance.icon_candidates = ",".join(
+                        bookmark_instance.icon_candidates
+                    )
+                    db.commit()
+                else:
+                    logger.warning(
+                        f"Metadata fetch failed for {bookmark_instance.url}: {metadata['error']}"
+                    )
+                    bookmark_instance.icon_candidates = [
+                        bookmark_instance.webicon or "/static/favicon.ico"
+                    ]
+            except Exception as e:
+                logger.warning(
+                    f"Failed to fetch metadata for {bookmark_instance.url}: {str(e)}"
+                )
+                bookmark_instance.icon_candidates = [
+                    bookmark_instance.webicon or "/static/favicon.ico"
+                ]
+        logger.info(f"Updated bookmark {bookmark_id}")
+        return bookmark_instance
+    except Exception as e:
+        logger.error(f"Error updating bookmark {bookmark_id}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500, detail=f"Failed to update bookmark: {str(e)}"
+        )
+
+
+@router.patch("/bookmarks/{bookmark_id}/webicon", response_model=BookmarkSchema)
+def update_bookmark_webicon(
+    bookmark_id: int, data: dict, db: Session = Depends(get_db)
+):
+    try:
+        bookmark_instance = (
+            db.query(Bookmark).filter(Bookmark.id == bookmark_id).first()
+        )
+        if not bookmark_instance:
+            logger.error(f"Bookmark {bookmark_id} not found")
+            raise HTTPException(status_code=404, detail="Bookmark not found")
+
+        new_webicon = data.get("webicon")
+        if not new_webicon:
+            logger.error("No webicon provided")
+            raise HTTPException(status_code=400, detail="Webicon path required")
+
+        # Validate the webicon path
+        icon_path = Path("app") / new_webicon.lstrip("/")
+        if not icon_path.exists() or not icon_path.is_file():
+            logger.error(f"Invalid webicon path: {new_webicon}")
+            raise HTTPException(status_code=400, detail="Invalid webicon path")
+
+        # Ensure the webicon is in the domain's icon folder
+        from urllib.parse import urlparse
+
+        domain = urlparse(bookmark_instance.url).netloc.replace(".", "_")
+        expected_dir = Path("app/static/icons") / domain
+        if not icon_path.parent == expected_dir:
+            logger.error(f"Webicon {new_webicon} not in domain folder {expected_dir}")
+            raise HTTPException(
+                status_code=400, detail="Webicon must be in domain's icon folder"
+            )
+
+        bookmark_instance.webicon = new_webicon
+        bookmark_instance.updated_at = datetime.now()
+        db.commit()
+        db.refresh(bookmark_instance)
+        # Convert tags and icon_candidates to lists
+        bookmark_instance.tags = (
+            bookmark_instance.tags.split(",")
+            if isinstance(bookmark_instance.tags, str) and bookmark_instance.tags
+            else []
+        )
+        bookmark_instance.icon_candidates = (
+            bookmark_instance.icon_candidates.split(",")
+            if isinstance(bookmark_instance.icon_candidates, str)
+            and bookmark_instance.icon_candidates
+            else []
+        )
+        # Fetch icon_candidates if missing
+        if not bookmark_instance.icon_candidates:
+            try:
+                metadata = fetch_metadata_combined(bookmark_instance.url)
+                if "error" not in metadata:
+                    bookmark_instance.icon_candidates = metadata.get(
+                        "icon_candidates", [bookmark_instance.webicon]
+                    )
+                    bookmark_instance.icon_candidates = (
+                        bookmark_instance.icon_candidates or [bookmark_instance.webicon]
+                    )
+                    bookmark_instance.icon_candidates = [
+                        str(ic) for ic in bookmark_instance.icon_candidates
+                    ]
+                    bookmark_instance.icon_candidates = ",".join(
+                        bookmark_instance.icon_candidates
+                    )
+                    db.commit()
+                else:
+                    logger.warning(
+                        f"Metadata fetch failed for {bookmark_instance.url}: {metadata['error']}"
+                    )
+                    bookmark_instance.icon_candidates = [
+                        bookmark_instance.webicon or "/static/favicon.ico"
+                    ]
+            except Exception as e:
+                logger.warning(
+                    f"Failed to fetch metadata for {bookmark_instance.url}: {str(e)}"
+                )
+                bookmark_instance.icon_candidates = [
+                    bookmark_instance.webicon or "/static/favicon.ico"
+                ]
+        logger.info(f"Updated webicon for bookmark {bookmark_id} to {new_webicon}")
+        return bookmark_instance
+    except Exception as e:
+        logger.error(
+            f"Error updating webicon for bookmark {bookmark_id}: {str(e)}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500, detail=f"Failed to update webicon: {str(e)}"
+        )
 
 
 @router.delete("/bookmarks/{bookmark_id}")
 def delete_bookmark(bookmark_id: int, db: Session = Depends(get_db)):
-    bookmark_instance = db.query(Bookmark).filter(Bookmark.id == bookmark_id).first()
-    if not bookmark_instance:
-        logger.error(f"Bookmark {bookmark_id} not found")
-        raise HTTPException(status_code=404, detail="Bookmark not found")
+    try:
+        bookmark_instance = (
+            db.query(Bookmark).filter(Bookmark.id == bookmark_id).first()
+        )
+        if not bookmark_instance:
+            logger.error(f"Bookmark {bookmark_id} not found")
+            raise HTTPException(status_code=404, detail="Bookmark not found")
 
-    db.delete(bookmark_instance)
-    db.commit()
-    logger.info(f"Deleted bookmark {bookmark_id}")
-    return {"message": "Bookmark deleted successfully"}
+        db.delete(bookmark_instance)
+        db.commit()
+        logger.info(f"Deleted bookmark {bookmark_id}")
+        return {"message": "Bookmark deleted successfully"}
+    except Exception as e:
+        logger.error(f"Error deleting bookmark {bookmark_id}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500, detail=f"Failed to delete bookmark: {str(e)}"
+        )
 
 
 class MetadataRequest(BaseModel):
@@ -109,44 +356,137 @@ class MetadataRequest(BaseModel):
 
 @router.post("/fetch-metadata")
 def get_metadata(request: MetadataRequest, db: Session = Depends(get_db)):
-    logger.info(f"Fetching metadata for URL: {request.url}")
-    existing_bookmark = db.query(Bookmark).filter(Bookmark.url == request.url).first()
-    if existing_bookmark and existing_bookmark.webicon:
-        icon_path = Path("app") / existing_bookmark.webicon.lstrip("/")
-        if icon_path.exists() and icon_path.stat().st_size > 0:
-            logger.info(
-                f"Reusing existing favicon for {request.url}: {existing_bookmark.webicon}"
+    try:
+        logger.info(f"Fetching metadata for URL: {request.url}")
+        existing_bookmark = (
+            db.query(Bookmark).filter(Bookmark.url == request.url).first()
+        )
+        if existing_bookmark and existing_bookmark.webicon:
+            icon_path = Path("app") / existing_bookmark.webicon.lstrip("/")
+            if icon_path.exists() and icon_path.stat().st_size > 0:
+                logger.info(
+                    f"Reusing existing favicon for {request.url}: {existing_bookmark.webicon}"
+                )
+                metadata = fetch_metadata_combined(request.url)
+                if "error" in metadata:
+                    logger.warning(
+                        f"Metadata fetch failed for {request.url}: {metadata['error']}"
+                    )
+                    return {
+                        "title": existing_bookmark.title or "No title",
+                        "description": existing_bookmark.description or "",
+                        "webicon": existing_bookmark.webicon,
+                        "icon_candidates": [],
+                        "extra_metadata": {},
+                    }
+                return {
+                    "title": existing_bookmark.title,
+                    "description": existing_bookmark.description,
+                    "webicon": existing_bookmark.webicon,
+                    "icon_candidates": metadata.get(
+                        "icon_candidates", [existing_bookmark.webicon]
+                    ),
+                    "extra_metadata": metadata.get("extra_metadata", {}),
+                }
+
+        metadata = fetch_metadata_combined(request.url)
+        if "error" in metadata:
+            logger.error(
+                f"Failed to fetch metadata for {request.url}: {metadata['error']}"
             )
             return {
-                "title": existing_bookmark.title,
-                "description": existing_bookmark.description,
-                "webicon": existing_bookmark.webicon,
-                "icon_candidates": [existing_bookmark.webicon],
+                "title": "No title",
+                "description": "",
+                "webicon": "/static/favicon.ico",
+                "icon_candidates": [],
+                "extra_metadata": {},
             }
-
-    metadata = fetch_metadata_combined(request.url)
-    if "error" in metadata:
-        logger.error(f"Failed to fetch metadata for {request.url}: {metadata['error']}")
-        return {
-            "title": "No title",
-            "description": "",
-            "webicon": "/static/favicon.ico",
-            "icon_candidates": [],
-        }
-
-    return metadata
-
-
-@router.get("/search", response_model=list[BookmarkSchema])
-def search_bookmarks(query: str, db: Session = Depends(get_db)):
-    bookmarks = (
-        db.query(Bookmark)
-        .filter(
-            (Bookmark.title.ilike(f"%{query}%"))
-            | (Bookmark.description.ilike(f"%{query}%"))
-            | (Bookmark.url.ilike(f"%{query}%"))
+        logger.info(f"Metadata fetched successfully for {request.url}")
+        return metadata
+    except Exception as e:
+        logger.error(
+            f"Error in fetch-metadata for {request.url}: {str(e)}", exc_info=True
         )
-        .all()
-    )
-    logger.info(f"Search query '{query}' returned {len(bookmarks)} results")
-    return bookmarks
+        raise HTTPException(
+            status_code=500, detail=f"Failed to fetch metadata: {str(e)}"
+        )
+
+
+@router.get("/search", response_model=List[BookmarkSchema])
+def search_bookmarks(query: str, db: Session = Depends(get_db)):
+    try:
+        logger.info(f"Searching bookmarks with query: {query}")
+        bookmarks = (
+            db.query(Bookmark)
+            .filter(
+                (Bookmark.title.ilike(f"%{query}%"))
+                | (Bookmark.description.ilike(f"%{query}%"))
+                | (Bookmark.url.ilike(f"%{query}%"))
+            )
+            .all()
+        )
+        logger.info(f"Search query '{query}' returned {len(bookmarks)} results")
+        result = []
+        for bookmark in bookmarks:
+            try:
+                # Convert tags and icon_candidates to lists
+                bookmark.tags = (
+                    bookmark.tags.split(",")
+                    if isinstance(bookmark.tags, str) and bookmark.tags
+                    else []
+                )
+                bookmark.icon_candidates = (
+                    bookmark.icon_candidates.split(",")
+                    if isinstance(bookmark.icon_candidates, str)
+                    and bookmark.icon_candidates
+                    else []
+                )
+                # Fetch icon_candidates if missing
+                if not bookmark.icon_candidates:
+                    try:
+                        metadata = fetch_metadata_combined(bookmark.url)
+                        if "error" not in metadata:
+                            bookmark.icon_candidates = metadata.get(
+                                "icon_candidates", [bookmark.webicon]
+                            )
+                            bookmark.icon_candidates = bookmark.icon_candidates or [
+                                bookmark.webicon
+                            ]
+                            bookmark.icon_candidates = [
+                                str(ic) for ic in bookmark.icon_candidates
+                            ]
+                            bookmark_instance = (
+                                db.query(Bookmark)
+                                .filter(Bookmark.id == bookmark.id)
+                                .first()
+                            )
+                            bookmark_instance.icon_candidates = ",".join(
+                                bookmark.icon_candidates
+                            )
+                            db.commit()
+                        else:
+                            logger.warning(
+                                f"Metadata fetch failed for {bookmark.url}: {metadata['error']}"
+                            )
+                            bookmark.icon_candidates = [
+                                bookmark.webicon or "/static/favicon.ico"
+                            ]
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to fetch metadata for {bookmark.url}: {str(e)}"
+                        )
+                        bookmark.icon_candidates = [
+                            bookmark.webicon or "/static/favicon.ico"
+                        ]
+                result.append(bookmark)
+            except Exception as e:
+                logger.warning(
+                    f"Skipping bookmark {bookmark.id} due to error: {str(e)}"
+                )
+                continue
+        return result
+    except Exception as e:
+        logger.error(f"Error searching bookmarks: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500, detail=f"Failed to search bookmarks: {str(e)}"
+        )

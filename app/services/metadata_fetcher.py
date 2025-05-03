@@ -13,18 +13,17 @@ import logging
 from functools import lru_cache
 from typing import Optional, Dict, List
 import time
-import magic  # For MIME type detection
+import magic
 import hashlib
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-ICON_DIR = Path("app/static/icons")
+BASE_ICON_DIR = Path("app/static/icons")
 DEFAULT_FAVICON = "/static/favicon.ico"
 MAX_ICON_SIZE = 1 * 1024 * 1024  # 1MB
 TARGET_ICON_SIZE = (64, 64)  # Resize to 64x64 pixels
 
-# List of domains that likely require Selenium
 JS_HEAVY_DOMAINS = ["youtube.com", "youtu.be"]
 
 
@@ -53,8 +52,8 @@ def is_valid_image(content_type: str, ext: str) -> bool:
 def resize_image(local_path: Path):
     try:
         with Image.open(local_path) as img:
-            img.verify()  # Verify image integrity
-            img = Image.open(local_path)  # Re-open after verify
+            img.verify()
+            img = Image.open(local_path)
             if img.size[0] > TARGET_ICON_SIZE[0] or img.size[1] > TARGET_ICON_SIZE[1]:
                 img.thumbnail(TARGET_ICON_SIZE)
                 img.save(local_path)
@@ -100,7 +99,6 @@ def download_and_validate_icon(
             )
             return None
 
-        # Save to temporary file with unique name
         temp_path = local_path.parent / f"{local_path.stem}_{unique_id}.tmp"
         with open(temp_path, "wb") as f:
             for chunk in resp.iter_content(8192):
@@ -112,7 +110,6 @@ def download_and_validate_icon(
                 temp_path.unlink()
             return None
 
-        # Verify MIME type with python-magic
         mime = magic.Magic(mime=True)
         file_type = mime.from_file(str(temp_path))
         if (
@@ -125,7 +122,6 @@ def download_and_validate_icon(
             temp_path.unlink()
             return None
 
-        # Verify with PIL
         try:
             with Image.open(temp_path) as img:
                 img.verify()
@@ -134,11 +130,10 @@ def download_and_validate_icon(
             temp_path.unlink()
             return None
 
-        # Move to final location and resize
         temp_path.rename(local_path)
         resize_image(local_path)
         logger.info(f"Successfully saved icon: {local_path}")
-        return f"/static/icons/{local_path.name}"
+        return f"/static/icons/{local_path.relative_to(BASE_ICON_DIR)}"
     except Exception as e:
         logger.error(f"Exception downloading icon {icon_url}: {e}")
         if local_path.exists():
@@ -150,7 +145,9 @@ def download_and_validate_icon(
 
 def fetch_google_favicon(domain: str) -> str:
     google_url = f"https://www.google.com/s2/favicons?domain={domain}"
-    local_icon_path = ICON_DIR / f"{domain.replace('.', '_')}_google.ico"
+    domain_dir = BASE_ICON_DIR / domain.replace(".", "_")
+    domain_dir.mkdir(parents=True, exist_ok=True)
+    local_icon_path = domain_dir / "google.ico"
     unique_id = hashlib.md5(google_url.encode()).hexdigest()[:8]
     static_path = download_and_validate_icon(google_url, local_icon_path, "", unique_id)
     return static_path or DEFAULT_FAVICON
@@ -158,7 +155,9 @@ def fetch_google_favicon(domain: str) -> str:
 
 def fetch_duckduckgo_favicon(domain: str) -> str:
     duckduckgo_url = f"https://icons.duckduckgo.com/ip3/{domain}.ico"
-    local_icon_path = ICON_DIR / f"{domain.replace('.', '_')}_duckduckgo.ico"
+    domain_dir = BASE_ICON_DIR / domain.replace(".", "_")
+    domain_dir.mkdir(parents=True, exist_ok=True)
+    local_icon_path = domain_dir / "duckduckgo.ico"
     unique_id = hashlib.md5(duckduckgo_url.encode()).hexdigest()[:8]
     static_path = download_and_validate_icon(
         duckduckgo_url, local_icon_path, "", unique_id
@@ -229,7 +228,8 @@ def fetch_metadata_scrape_meta(url: str) -> Dict:
 
         parsed = urlparse(url)
         base_name = parsed.netloc.replace(".", "_")
-        ICON_DIR.mkdir(parents=True, exist_ok=True)
+        domain_dir = BASE_ICON_DIR / base_name
+        domain_dir.mkdir(parents=True, exist_ok=True)
         local_candidates = []
         seen_files = set()
 
@@ -258,8 +258,8 @@ def fetch_metadata_scrape_meta(url: str) -> Dict:
                 or ".png"
             )
             icon_type = get_icon_type(icon_url)
-            filename = f"{base_name}_{icon_type}_{idx}{ext}"
-            local_icon_path = ICON_DIR / filename
+            filename = f"{icon_type}_{idx}{ext}"
+            local_icon_path = domain_dir / filename
             unique_id = hashlib.md5(icon_url.encode()).hexdigest()[:8]
             static_icon_path = download_and_validate_icon(
                 icon_url, local_icon_path, url, unique_id
@@ -270,7 +270,7 @@ def fetch_metadata_scrape_meta(url: str) -> Dict:
 
         if not local_candidates and meta.get("favicon"):
             favicon_url = urljoin(url, meta["favicon"])
-            local_icon_path = ICON_DIR / f"{base_name}_favicon{ext}"
+            local_icon_path = domain_dir / f"favicon{ext}"
             unique_id = hashlib.md5(favicon_url.encode()).hexdigest()[:8]
             static_icon_path = download_and_validate_icon(
                 favicon_url, local_icon_path, url, unique_id
@@ -387,7 +387,8 @@ def fetch_metadata_cloudscraper(url: str) -> Dict:
 
         parsed = urlparse(url)
         base_name = parsed.netloc.replace(".", "_")
-        ICON_DIR.mkdir(parents=True, exist_ok=True)
+        domain_dir = BASE_ICON_DIR / base_name
+        domain_dir.mkdir(parents=True, exist_ok=True)
         local_candidates = []
         seen_files = set()
 
@@ -400,8 +401,8 @@ def fetch_metadata_cloudscraper(url: str) -> Dict:
                 or ".png"
             )
             icon_type = get_icon_type(icon_url)
-            filename = f"{base_name}_{icon_type}_{idx}{ext}"
-            local_icon_path = ICON_DIR / filename
+            filename = f"{icon_type}_{idx}{ext}"
+            local_icon_path = domain_dir / filename
             unique_id = hashlib.md5(icon_url.encode()).hexdigest()[:8]
             static_icon_path = download_and_validate_icon(
                 icon_url, local_icon_path, url, unique_id
@@ -412,7 +413,7 @@ def fetch_metadata_cloudscraper(url: str) -> Dict:
 
         if not local_candidates:
             favicon_url = urljoin(url, "/favicon.ico")
-            local_icon_path = ICON_DIR / f"{base_name}_favicon.ico"
+            local_icon_path = domain_dir / "favicon.ico"
             unique_id = hashlib.md5(favicon_url.encode()).hexdigest()[:8]
             static_icon_path = download_and_validate_icon(
                 favicon_url, local_icon_path, url, unique_id
@@ -522,7 +523,8 @@ def fetch_metadata_with_selenium(url: str, retries: int = 2) -> Dict:
 
                 parsed = urlparse(url)
                 base_name = parsed.netloc.replace(".", "_")
-                ICON_DIR.mkdir(parents=True, exist_ok=True)
+                domain_dir = BASE_ICON_DIR / base_name
+                domain_dir.mkdir(parents=True, exist_ok=True)
                 local_candidates = []
                 seen_files = set()
 
@@ -535,8 +537,8 @@ def fetch_metadata_with_selenium(url: str, retries: int = 2) -> Dict:
                         or ".png"
                     )
                     icon_type = get_icon_type(icon_url)
-                    filename = f"{base_name}_{icon_type}_{idx}{ext}"
-                    local_icon_path = ICON_DIR / filename
+                    filename = f"{icon_type}_{idx}{ext}"
+                    local_icon_path = domain_dir / filename
                     unique_id = hashlib.md5(icon_url.encode()).hexdigest()[:8]
                     static_icon_path = download_and_validate_icon(
                         icon_url, local_icon_path, url, unique_id
@@ -547,7 +549,7 @@ def fetch_metadata_with_selenium(url: str, retries: int = 2) -> Dict:
 
                 if not local_candidates:
                     favicon_url = urljoin(url, "/favicon.ico")
-                    local_icon_path = ICON_DIR / f"{base_name}_favicon.ico"
+                    local_icon_path = domain_dir / "favicon.ico"
                     unique_id = hashlib.md5(favicon_url.encode()).hexdigest()[:8]
                     static_icon_path = download_and_validate_icon(
                         favicon_url, local_icon_path, url, unique_id
@@ -603,7 +605,7 @@ def fetch_metadata_with_selenium(url: str, retries: int = 2) -> Dict:
             )
             if attempt + 1 == retries:
                 return {"error": str(e)}
-            time.sleep(2)  # Wait before retrying
+            time.sleep(2)
     return {"error": "Selenium retries exhausted"}
 
 

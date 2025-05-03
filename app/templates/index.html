@@ -46,12 +46,9 @@
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Select Thumbnail</label>
-                            <div id="edit-icon-candidates" style="display:flex;gap:10px;flex-wrap:wrap;"></div>
+                            <div id="edit-icon-candidates" style="display:flex;gap:10px;flex-wrap:wrap;max-height:150px;overflow-y:auto;"></div>
                             <input type="hidden" id="edit-webicon">
-                        </div>
-                        <div class="mb-3">
-                            <label for="edit-icon-upload" class="form-label">Or Upload Custom Icon</label>
-                            <input type="file" id="edit-icon-upload" class="form-control bg-dark text-light" accept="image/*">
+                            <div id="icon-update-status" style="font-size:0.5rem;color:#888;margin-top:5px;"></div>
                         </div>
                         <div class="mb-3">
                             <label for="edit-url" class="form-label">URL</label>
@@ -105,17 +102,19 @@
                 </form>
             </div>
             <div class="col-md-6">
-<form id="bookmark-form">
-    <div class="input-group">
-        <input type="url" id="url" class="form-control bg-dark text-light" placeholder="Enter URL" required>
-        <button class="btn btn-light" type="submit">Add</button>
-    </div>
-</form>
+                <form id="bookmark-form">
+                    <div class="input-group">
+                        <input type="url" id="url" class="form-control bg-dark text-light" placeholder="Enter URL" required>
+                        <button class="btn btn-light" type="submit">Add</button>
+                    </div>
+                </form>
             </div>
         </div>
         <div id="bookmarks-list">
             <h2 class="text-light">Your Bookmarks</h2>
-            <div id="bookmarks-container" class="row g-3"></div>
+            <div id="bookmarks-container" class="row g-3">
+                <div id="bookmarks-status" class="text-light">Loading bookmarks...</div>
+            </div>
         </div>
     </div>
 
@@ -144,6 +143,7 @@
         const bookmarkForm = document.getElementById('bookmark-form');
         const searchForm = document.getElementById('search-form');
         const bookmarksContainer = document.getElementById('bookmarks-container');
+        const bookmarksStatus = document.getElementById('bookmarks-status');
         const popup = document.getElementById('bookmark-popup');
         const editBookmarkForm = document.getElementById('edit-bookmark-form');
         const editBookmarkModal = document.getElementById('editBookmarkModal');
@@ -151,25 +151,7 @@
         const confirmDeleteBtn = document.getElementById('confirm-delete');
         const editIconCandidates = document.getElementById('edit-icon-candidates');
         const editWebiconInput = document.getElementById('edit-webicon');
-
-        document.getElementById('edit-icon-upload').addEventListener('change', async function() {
-            const bookmarkId = editBookmarkModal.getAttribute('data-bookmark-id');
-            const file = this.files[0];
-            if (!file || !bookmarkId) return;
-            const formData = new FormData();
-            formData.append('file', file);
-            const response = await fetch(`/bookmarks/${bookmarkId}/icon`, {
-                method: 'POST',
-                body: formData
-            });
-            if (response.ok) {
-                const data = await response.json();
-                editWebiconInput.value = data.webicon;
-                showEditIconCandidates(bookmarkId, data.webicon); // Optionally refresh preview
-            } else {
-                alert('Failed to upload icon');
-            }
-        });
+        const iconUpdateStatus = document.getElementById('icon-update-status');
 
         // Add bookmark
         bookmarkForm.addEventListener('submit', async (e) => {
@@ -182,8 +164,8 @@
                     body: JSON.stringify({ url })
                 });
                 const data = await response.json();
+                console.log('Add bookmark metadata:', data);
                 if (!response.ok) throw new Error(data.detail || 'Failed to fetch metadata');
-                // Create the bookmark
                 const createResp = await fetch('/bookmarks', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -197,20 +179,12 @@
                         is_favorite: false
                     })
                 });
-                if (!createResp.ok) throw new Error('Failed to add bookmark');
-                const newBookmark = await createResp.json();
-                // If a manual icon was selected, upload it
-                if (bookmarkForm._manualIconFile && newBookmark.id) {
-                    const formData = new FormData();
-                    formData.append('file', bookmarkForm._manualIconFile);
-                    await fetch(`/bookmarks/${newBookmark.id}/icon`, {
-                        method: 'POST',
-                        body: formData
-                    });
+                if (!createResp.ok) {
+                    const errorData = await createResp.json().catch(() => ({}));
+                    throw new Error(errorData.detail || 'Failed to add bookmark');
                 }
                 await loadBookmarks();
                 document.getElementById('url').value = '';
-                bookmarkForm._manualIconFile = null;
             } catch (error) {
                 console.error('Add bookmark error:', error);
                 alert('Error: ' + error.message);
@@ -220,15 +194,34 @@
         // Load bookmarks
         async function loadBookmarks() {
             try {
+                console.log('Starting loadBookmarks');
+                bookmarksStatus.textContent = 'Loading bookmarks...';
                 const response = await fetch('/bookmarks');
-                if (!response.ok) throw new Error('Failed to load bookmarks');
-                const bookmarks = await response.json();
+                console.log('Bookmarks response status:', response.status);
+                const rawText = await response.text();
+                console.log('Bookmarks raw response:', rawText);
+                let bookmarks;
+                try {
+                    bookmarks = JSON.parse(rawText);
+                } catch (e) {
+                    throw new Error('Invalid JSON response: ' + e.message);
+                }
+                if (!response.ok) throw new Error(`Failed to load bookmarks (Status: ${response.status})`);
+                console.log('Loaded bookmarks:', bookmarks);
                 bookmarksContainer.innerHTML = '';
+                if (bookmarks.length === 0) {
+                    bookmarksStatus.textContent = 'No bookmarks available';
+                    return;
+                }
+                bookmarksStatus.textContent = '';
                 bookmarks.forEach(bookmark => {
+                    // Ensure tags and icon_candidates are arrays
+                    bookmark.tags = Array.isArray(bookmark.tags) ? bookmark.tags : [];
+                    bookmark.icon_candidates = Array.isArray(bookmark.icon_candidates) ? bookmark.icon_candidates : [bookmark.webicon || '/static/favicon.ico'];
                     const card = document.createElement('div');
                     card.className = 'col-md-2';
                     card.innerHTML = `
-                        <div class="card bg-dark text-light bookmark-card" style="position:relative;" tabindex="0">
+                        <div class="card bg-dark text-light bookmark-card" style="position:relative;" tabindex="0" data-bookmark-id="${bookmark.id}">
                             <a href="${sanitizeHTML(bookmark.url)}" target="_blank" style="display:block;">
                                 <div class="card-img-wrapper">
                                     <img src="${sanitizeHTML(bookmark.webicon) || '/static/favicon.ico'}" class="card-img-top" alt="Bookmark Image" onerror="this.onerror=null;this.src='/static/favicon.ico';">
@@ -245,7 +238,6 @@
                         </div>
                     `;
                     const cardDiv = card.querySelector('.card');
-                    // Popup events
                     cardDiv.addEventListener('mouseenter', function(e) {
                         this.style.boxShadow = '0 0 10px #bb86fc';
                         popup.innerHTML = `<strong>${sanitizeHTML(bookmark.title)}</strong><br><br>${sanitizeHTML(bookmark.description) || 'No description available'}`;
@@ -262,24 +254,22 @@
                         popup.style.top = (e.clientY + window.scrollY + 10) + 'px';
                         popup.style.left = (e.clientX + window.scrollX + 10) + 'px';
                     });
-                    // Keyboard accessibility
                     cardDiv.addEventListener('keydown', (e) => {
                         if (e.key === 'Enter') cardDiv.querySelector('a').click();
                     });
-                    // Action buttons
                     cardDiv.querySelector('.edit-bookmark').addEventListener('click', (e) => {
                         e.stopPropagation();
                         document.getElementById('edit-title').value = bookmark.title || '';
                         document.getElementById('edit-description').value = bookmark.description || '';
                         document.getElementById('edit-tags').value = (bookmark.tags || []).join(', ');
                         document.getElementById('edit-url').value = bookmark.url || '';
+                        document.getElementById('edit-extra-metadata').value = bookmark.extra_metadata ? JSON.stringify(bookmark.extra_metadata, null, 2) : '';
                         editBookmarkModal.setAttribute('data-bookmark-id', bookmark.id);
-                        showEditIconCandidates(bookmark.id, bookmark.webicon);
+                        showEditIconCandidates(bookmark.id, bookmark.webicon, bookmark.icon_candidates || [bookmark.webicon]);
                         new bootstrap.Modal(editBookmarkModal).show();
                     });
                     cardDiv.querySelector('.delete-bookmark').addEventListener('click', debounce((e) => {
                         e.stopPropagation();
-                        console.log('Delete button clicked for bookmark ID:', bookmark.id);
                         deleteBookmarkModal.setAttribute('data-bookmark-id', bookmark.id);
                         new bootstrap.Modal(deleteBookmarkModal).show();
                     }, 1000));
@@ -302,35 +292,31 @@
                 });
             } catch (error) {
                 console.error('Load bookmarks error:', error);
-                alert('Error loading bookmarks: ' + error.message);
+                bookmarksStatus.textContent = 'Error loading bookmarks: ' + error.message;
+                bookmarksStatus.style.color = 'red';
             }
-        }
-
-        // Helper to fetch icon candidates for a bookmark
-        async function fetchIconCandidates(bookmarkId) {
-            const response = await fetch('/bookmarks');
-            const bookmarks = await response.json();
-            const bookmark = bookmarks.find(b => b.id == bookmarkId);
-            if (!bookmark) return [];
-            if (bookmark.url) {
-                const metaResp = await fetch('/fetch-metadata', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url: bookmark.url })
-                });
-                if (metaResp.ok) {
-                    const meta = await metaResp.json();
-                    return meta.icon_candidates || [bookmark.webicon];
-                }
-            }
-            return [bookmark.webicon];
         }
 
         // Show icon candidates in the edit modal
-        async function showEditIconCandidates(bookmarkId, currentWebicon) {
+        function showEditIconCandidates(bookmarkId, currentWebicon, candidates) {
+            console.log('Showing icon candidates for bookmark', bookmarkId, 'Candidates:', candidates);
             editIconCandidates.innerHTML = '';
-            const candidates = await fetchIconCandidates(bookmarkId);
+            iconUpdateStatus.textContent = '';
+            if (!candidates || candidates.length === 0) {
+                console.warn('No icon candidates available for bookmark', bookmarkId);
+                const noIcons = document.createElement('div');
+                noIcons.textContent = 'No icon candidates available';
+                noIcons.style.color = '#888';
+                editIconCandidates.appendChild(noIcons);
+                editWebiconInput.value = currentWebicon || '/static/favicon.ico';
+                return;
+            }
             candidates.forEach(icon => {
+                const container = document.createElement('div');
+                container.style.display = 'flex';
+                container.style.flexDirection = 'column';
+                container.style.alignItems = 'center';
+                container.style.cursor = 'pointer';
                 const img = document.createElement('img');
                 img.src = icon;
                 img.alt = 'icon';
@@ -339,21 +325,70 @@
                 img.style.objectFit = 'contain';
                 img.style.border = (icon === currentWebicon) ? '2px solid #bb86fc' : '2px solid transparent';
                 img.style.borderRadius = '6px';
-                img.style.cursor = 'pointer';
-                img.addEventListener('click', () => {
-                    Array.from(editIconCandidates.children).forEach(child => child.style.border = '2px solid transparent');
-                    img.style.border = '2px solid #bb86fc';
-                    editWebiconInput.value = icon;
+                img.style.transition = 'border 0.2s';
+                const label = document.createElement('span');
+                label.textContent = getIconLabel(icon);
+                label.style.fontSize = '0.5rem';
+                label.style.color = '#ccc';
+                label.style.marginTop = '2px';
+                container.appendChild(img);
+                container.appendChild(label);
+                container.addEventListener('click', async () => {
+                    iconUpdateStatus.textContent = 'Updating icon...';
+                    try {
+                        const response = await fetch(`/bookmarks/${bookmarkId}/webicon`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ webicon: icon })
+                        });
+                        const data = await response.json();
+                        if (!response.ok) throw new Error(data.detail || 'Failed to update icon');
+                        console.log('Icon updated successfully:', data);
+                        Array.from(editIconCandidates.children).forEach(child => {
+                            child.querySelector('img').style.border = '2px solid transparent';
+                        });
+                        img.style.border = '2px solid #bb86fc';
+                        editWebiconInput.value = icon;
+                        iconUpdateStatus.textContent = 'Icon updated!';
+                        iconUpdateStatus.style.color = 'limegreen';
+                        // Update the bookmark card
+                        const card = document.querySelector(`.bookmark-card[data-bookmark-id="${bookmarkId}"]`);
+                        if (card) {
+                            const imgElement = card.querySelector('.card-img-top');
+                            imgElement.src = icon;
+                        }
+                    } catch (error) {
+                        console.error('Update icon error:', error);
+                        iconUpdateStatus.textContent = 'Error updating icon: ' + error.message;
+                        iconUpdateStatus.style.color = 'red';
+                        alert('Error: ' + error.message);
+                    }
+                });
+                container.addEventListener('mouseover', () => {
+                    if (img.style.border !== '2px solid #bb86fc') {
+                        img.style.border = '2px solid #666';
+                    }
+                });
+                container.addEventListener('mouseout', () => {
+                    if (img.style.border !== '2px solid #bb86fc') {
+                        img.style.border = '2px solid transparent';
+                    }
                 });
                 if (icon === currentWebicon) {
                     editWebiconInput.value = icon;
                 }
-                editIconCandidates.appendChild(img);
+                editIconCandidates.appendChild(container);
             });
-            if (!editWebiconInput.value && candidates.length > 0) {
-                editWebiconInput.value = candidates[0];
-                editIconCandidates.children[0].style.border = '2px solid #bb86fc';
-            }
+        }
+
+        // Helper to generate icon labels
+        function getIconLabel(icon) {
+            if (icon.includes('og-image')) return 'OG Image';
+            if (icon.includes('apple-touch-icon')) return 'Apple Icon';
+            if (icon.includes('favicon')) return 'Favicon';
+            if (icon.includes('duckduckgo')) return 'DuckDuckGo';
+            if (icon.includes('google')) return 'Google';
+            return 'Other';
         }
 
         // Handle delete confirmation
@@ -362,15 +397,12 @@
             if (!bookmarkId) return;
             confirmDeleteBtn.disabled = true;
             confirmDeleteBtn.textContent = 'Deleting...';
-            console.log('Deletion confirmed for bookmark ID:', bookmarkId);
             try {
                 const response = await fetch(`/bookmarks/${bookmarkId}`, { method: 'DELETE' });
-                console.log('DELETE response status:', response.status);
                 if (!response.ok) {
                     const data = await response.json().catch(() => ({}));
                     throw new Error(data.detail || `Failed to delete bookmark (Status: ${response.status})`);
                 }
-                console.log('Bookmark deleted successfully:', bookmarkId);
                 bootstrap.Modal.getInstance(deleteBookmarkModal).hide();
                 await loadBookmarks();
             } catch (error) {
@@ -395,11 +427,13 @@
                         title: document.getElementById('edit-title').value,
                         description: document.getElementById('edit-description').value,
                         tags: document.getElementById('edit-tags').value.split(',').map(t => t.trim()).filter(Boolean),
-                        webicon: editWebiconInput.value,
                         url: document.getElementById('edit-url').value
                     })
                 });
-                if (!response.ok) throw new Error('Failed to update bookmark');
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.detail || 'Failed to update bookmark');
+                }
                 bootstrap.Modal.getInstance(editBookmarkModal).hide();
                 await loadBookmarks();
             } catch (error) {
@@ -423,7 +457,8 @@
                     statusSpan.textContent = 'Offline';
                     statusSpan.style.color = 'red';
                 }
-            } catch {
+            } catch (error) {
+                console.error('Page status check error:', error);
                 statusSpan.textContent = 'Error';
                 statusSpan.style.color = 'orange';
             }
@@ -432,6 +467,7 @@
         // Update metadata in edit modal
         document.getElementById('update-metadata').addEventListener('click', async function() {
             const url = document.getElementById('edit-url').value;
+            const bookmarkId = editBookmarkModal.getAttribute('data-bookmark-id');
             try {
                 const response = await fetch('/fetch-metadata', {
                     method: 'POST',
@@ -439,10 +475,12 @@
                     body: JSON.stringify({ url })
                 });
                 const data = await response.json();
+                console.log('Update metadata response:', data);
                 if (!response.ok) throw new Error(data.detail || 'Failed to fetch metadata');
                 document.getElementById('edit-title').value = data.title || '';
                 document.getElementById('edit-description').value = data.description || '';
-                showEditIconCandidates(editBookmarkModal.getAttribute('data-bookmark-id'), data.webicon);
+                document.getElementById('edit-extra-metadata').value = data.extra_metadata ? JSON.stringify(data.extra_metadata, null, 2) : '';
+                showEditIconCandidates(bookmarkId, data.webicon, data.icon_candidates);
             } catch (error) {
                 console.error('Update metadata error:', error);
                 alert('Error: ' + error.message);
@@ -454,15 +492,33 @@
             e.preventDefault();
             const query = document.getElementById('search-query').value;
             try {
+                bookmarksStatus.textContent = 'Searching bookmarks...';
                 const response = await fetch(`/search?query=${encodeURIComponent(query)}`);
+                console.log('Search response status:', response.status);
+                const rawText = await response.text();
+                console.log('Search raw response:', rawText);
+                let results;
+                try {
+                    results = JSON.parse(rawText);
+                } catch (e) {
+                    throw new Error('Invalid JSON response: ' + e.message);
+                }
                 if (!response.ok) throw new Error('Failed to search bookmarks');
-                const results = await response.json();
+                console.log('Search results:', results);
                 bookmarksContainer.innerHTML = '';
+                if (results.length === 0) {
+                    bookmarksStatus.textContent = 'No bookmarks found';
+                    return;
+                }
+                bookmarksStatus.textContent = '';
                 results.forEach(result => {
+                    // Ensure tags and icon_candidates are arrays
+                    result.tags = Array.isArray(result.tags) ? result.tags : [];
+                    result.icon_candidates = Array.isArray(result.icon_candidates) ? result.icon_candidates : [result.webicon || '/static/favicon.ico'];
                     const card = document.createElement('div');
-                    card.className = 'col-md-4';
+                    card.className = 'col-md-2';
                     card.innerHTML = `
-                        <div class="card bg-dark text-light bookmark-card" style="position:relative;" tabindex="0">
+                        <div class="card bg-dark text-light bookmark-card" style="position:relative;" tabindex="0" data-bookmark-id="${result.id}">
                             <a href="${sanitizeHTML(result.url)}" target="_blank" style="display:block;">
                                 <div class="card-img-wrapper">
                                     <img src="${sanitizeHTML(result.webicon) || '/static/favicon.ico'}" class="card-img-top" alt="Bookmark Image" onerror="this.onerror=null;this.src='/static/favicon.ico';">
@@ -479,7 +535,6 @@
                         </div>
                     `;
                     const cardDiv = card.querySelector('.card');
-                    // Popup events
                     cardDiv.addEventListener('mouseenter', function(e) {
                         this.style.boxShadow = '0 0 10px #bb86fc';
                         popup.innerHTML = `<strong>${sanitizeHTML(result.title)}</strong><br><br>${sanitizeHTML(result.description) || 'No description available'}`;
@@ -496,24 +551,22 @@
                         popup.style.top = (e.clientY + window.scrollY + 10) + 'px';
                         popup.style.left = (e.clientX + window.scrollX + 10) + 'px';
                     });
-                    // Keyboard accessibility
                     cardDiv.addEventListener('keydown', (e) => {
                         if (e.key === 'Enter') cardDiv.querySelector('a').click();
                     });
-                    // Action buttons
                     cardDiv.querySelector('.edit-bookmark').addEventListener('click', (e) => {
                         e.stopPropagation();
                         document.getElementById('edit-title').value = result.title || '';
                         document.getElementById('edit-description').value = result.description || '';
                         document.getElementById('edit-tags').value = (result.tags || []).join(', ');
                         document.getElementById('edit-url').value = result.url || '';
+                        document.getElementById('edit-extra-metadata').value = result.extra_metadata ? JSON.stringify(result.extra_metadata, null, 2) : '';
                         editBookmarkModal.setAttribute('data-bookmark-id', result.id);
-                        showEditIconCandidates(result.id, result.webicon);
+                        showEditIconCandidates(result.id, result.webicon, result.icon_candidates || [result.webicon]);
                         new bootstrap.Modal(editBookmarkModal).show();
                     });
                     cardDiv.querySelector('.delete-bookmark').addEventListener('click', debounce((e) => {
                         e.stopPropagation();
-                        console.log('Delete button clicked for bookmark ID:', result.id);
                         deleteBookmarkModal.setAttribute('data-bookmark-id', result.id);
                         new bootstrap.Modal(deleteBookmarkModal).show();
                     }, 1000));
@@ -536,7 +589,8 @@
                 });
             } catch (error) {
                 console.error('Search bookmarks error:', error);
-                alert('Error searching bookmarks: ' + error.message);
+                bookmarksStatus.textContent = 'Error searching bookmarks: ' + error.message;
+                bookmarksStatus.style.color = 'red';
             }
         });
 
@@ -544,5 +598,5 @@
         loadBookmarks();
     });
     </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'939030d71b60bfca',t:'MTc0NjExMjA3MC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</body>
 </html>
