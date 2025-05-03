@@ -15,3 +15,7 @@ cloudscraper
 metadata_parser
 python-multipart
 python-magic-bin
+transformers
+torch
+numpy
+scikit-learn

@@ -60,10 +60,10 @@ def resize_image(local_path: Path):
     try:
         with Image.open(local_path) as img:
             img.verify()
-            img = Image.open(local_path)
+        with Image.open(local_path) as img:
             if img.size[0] > TARGET_ICON_SIZE[0] or img.size[1] > TARGET_ICON_SIZE[1]:
                 img.thumbnail(TARGET_ICON_SIZE)
-                img.save(local_path)
+                img.save(local_path, "PNG")
                 logger.info(f"Resized image to {TARGET_ICON_SIZE}: {local_path}")
     except Exception as e:
         logger.error(f"Failed to resize image {local_path}: {e}")
@@ -651,9 +651,11 @@ def is_valid_metadata(metadata: Dict) -> bool:
         or any(metadata.get("extra_metadata", {}).values())
     )
 
+
 def fetch_metadata_combined(url: str) -> Dict:
     try:
         logger.info(f"Starting metadata fetch for URL: {url}")
+        url = url.lower()
         if not url.startswith(("http://", "https://")):
             url = "https://" + url
         parsed_url = urlparse(url)
@@ -670,7 +672,9 @@ def fetch_metadata_combined(url: str) -> Dict:
                     relative_path = f"/static/recycled_icons/{domain}/{icon_path.name}"
                     recycled_icons.append(relative_path)
             if recycled_icons:
-                logger.info(f"Found {len(recycled_icons)} recycled icons for {domain}: {recycled_icons}")
+                logger.info(
+                    f"Found {len(recycled_icons)} recycled icons for {domain}: {recycled_icons}"
+                )
                 webicon = recycled_icons[0]
                 for recycled_icon in recycled_icons:
                     src_path = Path("app") / recycled_icon.lstrip("/")
@@ -682,8 +686,11 @@ def fetch_metadata_combined(url: str) -> Dict:
                     "title": "Reused bookmark",
                     "description": "",
                     "webicon": f"/static/icons/{domain}/{Path(recycled_icons[0]).name}",
-                    "icon_candidates": [f"/static/icons/{domain}/{Path(ic).name}" for ic in recycled_icons],
-                    "extra_metadata": {"url": url}
+                    "icon_candidates": [
+                        f"/static/icons/{domain}/{Path(ic).name}"
+                        for ic in recycled_icons
+                    ],
+                    "extra_metadata": {"url": url},
                 }
 
         scraper = cloudscraper.create_scraper()
@@ -699,7 +706,9 @@ def fetch_metadata_combined(url: str) -> Dict:
         logger.info(f"Extracted title: {title}")
 
         description = ""
-        meta_desc = soup.find("meta", attrs={"name": "description"}) or soup.find("meta", attrs={"property": "og:description"})
+        meta_desc = soup.find("meta", attrs={"name": "description"}) or soup.find(
+            "meta", attrs={"property": "og:description"}
+        )
         if meta_desc and meta_desc.get("content"):
             description = meta_desc["content"].strip()
         logger.info(f"Extracted description: {description[:50]}...")
@@ -715,7 +724,9 @@ def fetch_metadata_combined(url: str) -> Dict:
         og_image = soup.find("meta", attrs={"property": "og:image"})
         if og_image and og_image["content"]:
             icons.append(("og-image", og_image["content"]))
-        favicon = soup.find("link", rel="icon") or soup.find("link", rel="shortcut icon")
+        favicon = soup.find("link", rel="icon") or soup.find(
+            "link", rel="shortcut icon"
+        )
         if favicon and favicon.get("href"):
             icons.append(("favicon", favicon["href"]))
 
@@ -723,11 +734,27 @@ def fetch_metadata_combined(url: str) -> Dict:
         for idx, (icon_type, icon_url) in enumerate(icons):
             try:
                 absolute_icon_url = urljoin(url, icon_url)
-                icon_response = scraper.get(absolute_icon_url, timeout=5)
-                icon_response.raise_for_status()
+                icon_response = None
+                for attempt in range(2):
+                    try:
+                        icon_response = scraper.get(absolute_icon_url, timeout=5)
+                        icon_response.raise_for_status()
+                        break
+                    except Exception as e:
+                        if attempt == 1:
+                            logger.warning(
+                                f"Failed to process icon {absolute_icon_url}: {str(e)}"
+                            )
+                            continue
+                        time.sleep(1)
+                if not icon_response:
+                    continue
+
                 content_type = icon_response.headers.get("content-type", "")
                 if not content_type.startswith("image/"):
-                    logger.warning(f"Skipping non-image content for {absolute_icon_url}: {content_type}")
+                    logger.warning(
+                        f"Skipping non-image content for {absolute_icon_url}: {content_type}"
+                    )
                     continue
 
                 # Determine file extension and suitability
@@ -744,13 +771,19 @@ def fetch_metadata_combined(url: str) -> Dict:
                     try:
                         img = Image.open(io.BytesIO(icon_response.content))
                         img.verify()
-                        img = Image.open(io.BytesIO(icon_response.content))  # Reopen for size check
+                        img = Image.open(
+                            io.BytesIO(icon_response.content)
+                        )  # Reopen for size check
                         width, height = img.size
                         if 16 <= width <= 180 and 16 <= height <= 180:
                             preserve_original = True
-                            logger.info(f"Preserving original {file_mime} for {absolute_icon_url} (size: {width}x{height})")
+                            logger.info(
+                                f"Preserving original {file_mime} for {absolute_icon_url} (size: {width}x{height})"
+                            )
                     except Exception as e:
-                        logger.warning(f"Failed to verify image size for {absolute_icon_url}: {str(e)}")
+                        logger.warning(
+                            f"Failed to verify image size for {absolute_icon_url}: {str(e)}"
+                        )
 
                 icon_path = base_dir / f"icon_{idx}.{file_ext}"
                 if preserve_original:
@@ -762,13 +795,25 @@ def fetch_metadata_combined(url: str) -> Dict:
                     # Process with PIL
                     img = Image.open(io.BytesIO(icon_response.content))
                     img.verify()
-                    img = Image.open(io.BytesIO(icon_response.content))  # Reopen for processing
-                    if img.mode not in ["RGB", "RGBA"]:
+                    img = Image.open(
+                        io.BytesIO(icon_response.content)
+                    )  # Reopen for processing
+                    if img.mode == "P" and img.info.get("transparency") is not None:
+                        img = img.convert("RGBA")
+                        logger.info(f"Converted P mode to RGBA for {absolute_icon_url}")
+                    elif img.mode not in ["RGB", "RGBA"]:
                         img = img.convert("RGBA" if "A" in img.mode else "RGB")
                     if max(img.size) > 128:
                         img = img.resize((128, 128), Image.Resampling.LANCZOS)
                     img.save(icon_path, "PNG", quality=95)
                     logger.info(f"Saved processed icon: {icon_path}")
+
+                # Validate saved icon
+                if not icon_path.exists() or icon_path.stat().st_size == 0:
+                    logger.warning(f"Invalid icon {icon_path}: zero size or missing")
+                    if icon_path.exists():
+                        icon_path.unlink()
+                    continue
 
                 relative_path = f"/static/icons/{domain}/{icon_path.name}"
                 icon_candidates.append(relative_path)
@@ -780,11 +825,16 @@ def fetch_metadata_combined(url: str) -> Dict:
 
         if not icon_candidates:
             logger.warning(f"No valid icons found for {url}")
-            webicon = "/static/favicon.ico"
-            icon_candidates = [webicon]
+            domain = parsed_url.netloc
+            duckduckgo_icon = fetch_duckduckgo_favicon(domain)
+            if duckduckgo_icon != DEFAULT_FAVICON:
+                icon_candidates.append(duckduckgo_icon)
+            else:
+                google_icon = fetch_google_favicon(domain)
+                icon_candidates.append(google_icon)
 
         if not webicon:
-            webicon = icon_candidates[0]
+            webicon = icon_candidates[0] if icon_candidates else DEFAULT_FAVICON
 
         return {
             "title": title,
@@ -792,9 +842,13 @@ def fetch_metadata_combined(url: str) -> Dict:
             "webicon": webicon,
             "icon_candidates": icon_candidates,
             "extra_metadata": {
-                "og_title": soup.find("meta", attrs={"property": "og:title"})["content"] if soup.find("meta", attrs={"property": "og:title"}) else None,
-                "url": url
-            }
+                "og_title": (
+                    soup.find("meta", attrs={"property": "og:title"})["content"]
+                    if soup.find("meta", attrs={"property": "og:title"})
+                    else None
+                ),
+                "url": url,
+            },
         }
     except Exception as e:
         logger.error(f"Metadata fetch failed for {url}: {str(e)}", exc_info=True)
@@ -802,7 +856,7 @@ def fetch_metadata_combined(url: str) -> Dict:
             "error": f"Metadata fetch failed: {str(e)}",
             "title": "No title",
             "description": "",
-            "webicon": "/static/favicon.ico",
-            "icon_candidates": [],
-            "extra_metadata": {}
+            "webicon": DEFAULT_FAVICON,
+            "icon_candidates": [DEFAULT_FAVICON],
+            "extra_metadata": {},
         }
