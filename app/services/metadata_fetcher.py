@@ -13,6 +13,8 @@ import logging
 from functools import lru_cache
 from typing import Optional, Dict, List
 import time
+import magic  # For MIME type detection
+import hashlib
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -21,6 +23,9 @@ ICON_DIR = Path("app/static/icons")
 DEFAULT_FAVICON = "/static/favicon.ico"
 MAX_ICON_SIZE = 1 * 1024 * 1024  # 1MB
 TARGET_ICON_SIZE = (64, 64)  # Resize to 64x64 pixels
+
+# List of domains that likely require Selenium
+JS_HEAVY_DOMAINS = ["youtube.com", "youtu.be"]
 
 
 def normalize_url_for_filename(icon_url: str) -> str:
@@ -62,13 +67,13 @@ def resize_image(local_path: Path):
 
 
 def download_and_validate_icon(
-    icon_url: str, local_path: Path, referer: str
+    icon_url: str, local_path: Path, referer: str, unique_id: str
 ) -> Optional[str]:
     try:
         session = requests.Session()
         session.headers.update(
             {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
                 "Referer": referer,
                 "Accept": "image/*,*/*;q=0.8",
                 "Accept-Encoding": "gzip, deflate, br",
@@ -83,7 +88,9 @@ def download_and_validate_icon(
         content_type = resp.headers.get("content-type", "").lower()
         ext = os.path.splitext(urlparse(icon_url).path)[1].split("?")[0] or ".png"
         if not is_valid_image(content_type, ext):
-            logger.warning(f"Invalid content-type or extension for {icon_url}")
+            logger.warning(
+                f"Invalid content-type or extension for {icon_url}: {content_type}, {ext}"
+            )
             return None
 
         content_length = int(resp.headers.get("content-length", 0))
@@ -93,39 +100,73 @@ def download_and_validate_icon(
             )
             return None
 
-        with open(local_path, "wb") as f:
+        # Save to temporary file with unique name
+        temp_path = local_path.parent / f"{local_path.stem}_{unique_id}.tmp"
+        with open(temp_path, "wb") as f:
             for chunk in resp.iter_content(8192):
                 f.write(chunk)
 
-        if local_path.exists() and local_path.stat().st_size > 0:
-            try:
-                with Image.open(local_path) as img:
-                    img.verify()  # Ensure it's a valid image
-                resize_image(local_path)
-                return f"/static/icons/{local_path.name}"
-            except Exception as e:
-                logger.error(f"Invalid image file {local_path}: {e}")
-                local_path.unlink()
-                return None
-        else:
-            logger.warning(f"Downloaded icon is empty or missing: {local_path}")
-            if local_path.exists():
-                local_path.unlink()
+        if not temp_path.exists() or temp_path.stat().st_size == 0:
+            logger.warning(f"Downloaded icon is empty or missing: {temp_path}")
+            if temp_path.exists():
+                temp_path.unlink()
             return None
+
+        # Verify MIME type with python-magic
+        mime = magic.Magic(mime=True)
+        file_type = mime.from_file(str(temp_path))
+        if (
+            not file_type.startswith("image/")
+            or file_type == "application/octet-stream"
+        ):
+            logger.warning(
+                f"Downloaded file is not an image: {temp_path}, MIME: {file_type}"
+            )
+            temp_path.unlink()
+            return None
+
+        # Verify with PIL
+        try:
+            with Image.open(temp_path) as img:
+                img.verify()
+        except Exception as e:
+            logger.error(f"Invalid image file {temp_path}: {e}")
+            temp_path.unlink()
+            return None
+
+        # Move to final location and resize
+        temp_path.rename(local_path)
+        resize_image(local_path)
+        logger.info(f"Successfully saved icon: {local_path}")
+        return f"/static/icons/{local_path.name}"
     except Exception as e:
         logger.error(f"Exception downloading icon {icon_url}: {e}")
+        if local_path.exists():
+            local_path.unlink()
+        if temp_path.exists():
+            temp_path.unlink()
         return None
+
+
+def fetch_google_favicon(domain: str) -> str:
+    google_url = f"https://www.google.com/s2/favicons?domain={domain}"
+    local_icon_path = ICON_DIR / f"{domain.replace('.', '_')}_google.ico"
+    unique_id = hashlib.md5(google_url.encode()).hexdigest()[:8]
+    static_path = download_and_validate_icon(google_url, local_icon_path, "", unique_id)
+    return static_path or DEFAULT_FAVICON
 
 
 def fetch_duckduckgo_favicon(domain: str) -> str:
     duckduckgo_url = f"https://icons.duckduckgo.com/ip3/{domain}.ico"
     local_icon_path = ICON_DIR / f"{domain.replace('.', '_')}_duckduckgo.ico"
-    static_path = download_and_validate_icon(duckduckgo_url, local_icon_path, "")
+    unique_id = hashlib.md5(duckduckgo_url.encode()).hexdigest()[:8]
+    static_path = download_and_validate_icon(
+        duckduckgo_url, local_icon_path, "", unique_id
+    )
     return static_path or DEFAULT_FAVICON
 
 
 def fetch_html(url: str, scraper: cloudscraper.CloudScraper, timeout: int = 15) -> str:
-    """Fetch page HTML using Cloudscraper (from scrape_meta.py)."""
     try:
         resp = scraper.get(url, timeout=timeout)
         resp.raise_for_status()
@@ -136,8 +177,7 @@ def fetch_html(url: str, scraper: cloudscraper.CloudScraper, timeout: int = 15) 
 
 
 def extract_metadata(html: str) -> Dict:
-    """Extract common metadata into a dict (from scrape_meta.py)."""
-    soup = BeautifulSoup(html, "html.parser", from_encoding="utf-8")
+    soup = BeautifulSoup(html, "html.parser")
     data = {
         "title": None,
         "description": None,
@@ -171,7 +211,6 @@ def extract_metadata(html: str) -> Dict:
 
 @lru_cache(maxsize=1000)
 def fetch_metadata_scrape_meta(url: str) -> Dict:
-    """Fetch metadata using scrape_meta.py's approach with Bookmarks Manager's icon handling."""
     try:
         scraper = cloudscraper.create_scraper()
         html = fetch_html(url, scraper)
@@ -192,9 +231,9 @@ def fetch_metadata_scrape_meta(url: str) -> Dict:
         base_name = parsed.netloc.replace(".", "_")
         ICON_DIR.mkdir(parents=True, exist_ok=True)
         local_candidates = []
+        seen_files = set()
 
-        # Collect icon candidates (enhanced from scrape_meta.py)
-        soup = BeautifulSoup(html, "html.parser", from_encoding="utf-8")
+        soup = BeautifulSoup(html, "html.parser")
         icon_candidates = []
         for rel in ["icon", "shortcut icon"]:
             for tag in soup.find_all("link", rel=rel):
@@ -210,8 +249,7 @@ def fetch_metadata_scrape_meta(url: str) -> Dict:
         seen = set()
         icon_candidates = [x for x in icon_candidates if not (x in seen or seen.add(x))]
 
-        # Process icon candidates
-        for icon_url in icon_candidates:
+        for idx, icon_url in enumerate(icon_candidates):
             if not icon_url:
                 continue
             clean_icon_url = normalize_url_for_filename(icon_url)
@@ -220,30 +258,40 @@ def fetch_metadata_scrape_meta(url: str) -> Dict:
                 or ".png"
             )
             icon_type = get_icon_type(icon_url)
-            filename = f"{base_name}_{icon_type}{ext}"
+            filename = f"{base_name}_{icon_type}_{idx}{ext}"
             local_icon_path = ICON_DIR / filename
+            unique_id = hashlib.md5(icon_url.encode()).hexdigest()[:8]
             static_icon_path = download_and_validate_icon(
-                icon_url, local_icon_path, url
+                icon_url, local_icon_path, url, unique_id
             )
-            if static_icon_path:
+            if static_icon_path and static_icon_path not in seen_files:
                 local_candidates.append(static_icon_path)
+                seen_files.add(static_icon_path)
 
-        # Fallback to /favicon.ico
         if not local_candidates and meta.get("favicon"):
             favicon_url = urljoin(url, meta["favicon"])
             local_icon_path = ICON_DIR / f"{base_name}_favicon{ext}"
+            unique_id = hashlib.md5(favicon_url.encode()).hexdigest()[:8]
             static_icon_path = download_and_validate_icon(
-                favicon_url, local_icon_path, url
+                favicon_url, local_icon_path, url, unique_id
             )
-            if static_icon_path:
+            if static_icon_path and static_icon_path not in seen_files:
                 local_candidates.append(static_icon_path)
+                seen_files.add(static_icon_path)
 
-        # Fallback to DuckDuckGo
         if not local_candidates:
             domain = parsed.netloc
             duckduckgo_icon = fetch_duckduckgo_favicon(domain)
-            if duckduckgo_icon != DEFAULT_FAVICON:
+            if duckduckgo_icon != DEFAULT_FAVICON and duckduckgo_icon not in seen_files:
                 local_candidates.append(duckduckgo_icon)
+                seen_files.add(duckduckgo_icon)
+
+        if not local_candidates:
+            domain = parsed.netloc
+            google_icon = fetch_google_favicon(domain)
+            if google_icon != DEFAULT_FAVICON and google_icon not in seen_files:
+                local_candidates.append(google_icon)
+                seen_files.add(google_icon)
 
         webicon = (
             next(
@@ -276,13 +324,12 @@ def fetch_metadata_scrape_meta(url: str) -> Dict:
 
 @lru_cache(maxsize=1000)
 def fetch_metadata_cloudscraper(url: str) -> Dict:
-    """Existing cloudscraper-based metadata fetching."""
     try:
         scraper = cloudscraper.create_scraper()
         response = scraper.get(
             url,
             headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
                 "Accept-Encoding": "gzip, deflate, br",
                 "Accept-Language": "en-US,en;q=0.9",
@@ -335,10 +382,6 @@ def fetch_metadata_cloudscraper(url: str) -> Dict:
         if og_image and og_image.get("content"):
             icon_candidates.append(og_image["content"])
         icon_candidates.append(urljoin(url, "/favicon.ico"))
-        for img in soup.find_all("img"):
-            src = img.get("src")
-            if src:
-                icon_candidates.append(urljoin(url, src))
         seen = set()
         icon_candidates = [x for x in icon_candidates if not (x in seen or seen.add(x))]
 
@@ -346,8 +389,9 @@ def fetch_metadata_cloudscraper(url: str) -> Dict:
         base_name = parsed.netloc.replace(".", "_")
         ICON_DIR.mkdir(parents=True, exist_ok=True)
         local_candidates = []
+        seen_files = set()
 
-        for icon_url in icon_candidates:
+        for idx, icon_url in enumerate(icon_candidates):
             if not icon_url:
                 continue
             clean_icon_url = normalize_url_for_filename(icon_url)
@@ -356,28 +400,40 @@ def fetch_metadata_cloudscraper(url: str) -> Dict:
                 or ".png"
             )
             icon_type = get_icon_type(icon_url)
-            filename = f"{base_name}_{icon_type}{ext}"
+            filename = f"{base_name}_{icon_type}_{idx}{ext}"
             local_icon_path = ICON_DIR / filename
+            unique_id = hashlib.md5(icon_url.encode()).hexdigest()[:8]
             static_icon_path = download_and_validate_icon(
-                icon_url, local_icon_path, url
+                icon_url, local_icon_path, url, unique_id
             )
-            if static_icon_path:
+            if static_icon_path and static_icon_path not in seen_files:
                 local_candidates.append(static_icon_path)
+                seen_files.add(static_icon_path)
 
         if not local_candidates:
             favicon_url = urljoin(url, "/favicon.ico")
             local_icon_path = ICON_DIR / f"{base_name}_favicon.ico"
+            unique_id = hashlib.md5(favicon_url.encode()).hexdigest()[:8]
             static_icon_path = download_and_validate_icon(
-                favicon_url, local_icon_path, url
+                favicon_url, local_icon_path, url, unique_id
             )
-            if static_icon_path:
+            if static_icon_path and static_icon_path not in seen_files:
                 local_candidates.append(static_icon_path)
+                seen_files.add(static_icon_path)
 
         if not local_candidates:
             domain = parsed.netloc
             duckduckgo_icon = fetch_duckduckgo_favicon(domain)
-            if duckduckgo_icon != DEFAULT_FAVICON:
+            if duckduckgo_icon != DEFAULT_FAVICON and duckduckgo_icon not in seen_files:
                 local_candidates.append(duckduckgo_icon)
+                seen_files.add(duckduckgo_icon)
+
+        if not local_candidates:
+            domain = parsed.netloc
+            google_icon = fetch_google_favicon(domain)
+            if google_icon != DEFAULT_FAVICON and google_icon not in seen_files:
+                local_candidates.append(google_icon)
+                seen_files.add(google_icon)
 
         webicon = (
             next(
@@ -408,128 +464,151 @@ def fetch_metadata_cloudscraper(url: str) -> Dict:
         return {"error": str(e)}
 
 
-def fetch_metadata_with_selenium(url: str) -> Dict:
-    """Existing Selenium-based metadata fetching."""
-    try:
-        driver_path = setup_geckodriver()
-        options = Options()
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-        service = Service(driver_path)
-        driver = webdriver.Firefox(service=service, options=options)
-        driver.get(url)
-        time.sleep(5)
-        soup = BeautifulSoup(driver.page_source, "html.parser", from_encoding="utf-8")
-        metadata = {
-            "title": "",
-            "description": "",
-            "webicon": DEFAULT_FAVICON,
-            "icon_candidates": [],
-        }
+def fetch_metadata_with_selenium(url: str, retries: int = 2) -> Dict:
+    for attempt in range(retries):
+        try:
+            driver_path = setup_geckodriver()
+            options = Options()
+            options.add_argument("--headless")
+            options.add_argument("--disable-gpu")
+            service = Service(driver_path)
+            with webdriver.Firefox(service=service, options=options) as driver:
+                driver.set_page_load_timeout(30)
+                driver.get(url)
+                time.sleep(5)
+                soup = BeautifulSoup(driver.page_source, "html.parser")
+                metadata = {
+                    "title": "",
+                    "description": "",
+                    "webicon": DEFAULT_FAVICON,
+                    "icon_candidates": [],
+                }
 
-        title_tag = (
-            soup.find("title")
-            or soup.find("meta", property="og:title")
-            or soup.find("meta", attrs={"name": "twitter:title"})
-            or soup.find("h1")
-        )
-        metadata["title"] = title_tag.get_text(strip=True) if title_tag else ""
+                title_tag = (
+                    soup.find("title")
+                    or soup.find("meta", property="og:title")
+                    or soup.find("meta", attrs={"name": "twitter:title"})
+                    or soup.find("h1")
+                )
+                metadata["title"] = title_tag.get_text(strip=True) if title_tag else ""
 
-        description_tag = (
-            soup.find("meta", attrs={"name": "description"})
-            or soup.find("meta", property="og:description")
-            or soup.find("meta", attrs={"name": "twitter:description"})
-        )
-        metadata["description"] = (
-            description_tag["content"]
-            if description_tag and description_tag.get("content")
-            else ""
-        )
+                description_tag = (
+                    soup.find("meta", attrs={"name": "description"})
+                    or soup.find("meta", property="og:description")
+                    or soup.find("meta", attrs={"name": "twitter:description"})
+                )
+                metadata["description"] = (
+                    description_tag["content"]
+                    if description_tag and description_tag.get("content")
+                    else ""
+                )
 
-        icon_candidates = []
-        for rel in ["icon", "shortcut icon"]:
-            for tag in soup.find_all("link", rel=rel):
-                if tag.get("href"):
-                    icon_candidates.append(urljoin(url, tag["href"]))
-        for tag in soup.find_all("link", rel="apple-touch-icon"):
-            if tag.get("href"):
-                icon_candidates.append(urljoin(url, tag["href"]))
-        og_image = soup.find("meta", attrs={"property": "og:image"})
-        if og_image and og_image.get("content"):
-            icon_candidates.append(og_image["content"])
-        icon_candidates.append(urljoin(url, "/favicon.ico"))
-        seen = set()
-        icon_candidates = [x for x in icon_candidates if not (x in seen or seen.add(x))]
+                icon_candidates = []
+                for rel in ["icon", "shortcut icon"]:
+                    for tag in soup.find_all("link", rel=rel):
+                        if tag.get("href"):
+                            icon_candidates.append(urljoin(url, tag["href"]))
+                for tag in soup.find_all("link", rel="apple-touch-icon"):
+                    if tag.get("href"):
+                        icon_candidates.append(urljoin(url, tag["href"]))
+                og_image = soup.find("meta", attrs={"property": "og:image"})
+                if og_image and og_image.get("content"):
+                    icon_candidates.append(og_image["content"])
+                icon_candidates.append(urljoin(url, "/favicon.ico"))
+                seen = set()
+                icon_candidates = [
+                    x for x in icon_candidates if not (x in seen or seen.add(x))
+                ]
 
-        parsed = urlparse(url)
-        base_name = parsed.netloc.replace(".", "_")
-        ICON_DIR.mkdir(parents=True, exist_ok=True)
-        local_candidates = []
+                parsed = urlparse(url)
+                base_name = parsed.netloc.replace(".", "_")
+                ICON_DIR.mkdir(parents=True, exist_ok=True)
+                local_candidates = []
+                seen_files = set()
 
-        for icon_url in icon_candidates:
-            if not icon_url:
-                continue
-            clean_icon_url = normalize_url_for_filename(icon_url)
-            ext = (
-                os.path.splitext(urlparse(clean_icon_url).path)[1].split("?")[0]
-                or ".png"
+                for idx, icon_url in enumerate(icon_candidates):
+                    if not icon_url:
+                        continue
+                    clean_icon_url = normalize_url_for_filename(icon_url)
+                    ext = (
+                        os.path.splitext(urlparse(clean_icon_url).path)[1].split("?")[0]
+                        or ".png"
+                    )
+                    icon_type = get_icon_type(icon_url)
+                    filename = f"{base_name}_{icon_type}_{idx}{ext}"
+                    local_icon_path = ICON_DIR / filename
+                    unique_id = hashlib.md5(icon_url.encode()).hexdigest()[:8]
+                    static_icon_path = download_and_validate_icon(
+                        icon_url, local_icon_path, url, unique_id
+                    )
+                    if static_icon_path and static_icon_path not in seen_files:
+                        local_candidates.append(static_icon_path)
+                        seen_files.add(static_icon_path)
+
+                if not local_candidates:
+                    favicon_url = urljoin(url, "/favicon.ico")
+                    local_icon_path = ICON_DIR / f"{base_name}_favicon.ico"
+                    unique_id = hashlib.md5(favicon_url.encode()).hexdigest()[:8]
+                    static_icon_path = download_and_validate_icon(
+                        favicon_url, local_icon_path, url, unique_id
+                    )
+                    if static_icon_path and static_icon_path not in seen_files:
+                        local_candidates.append(static_icon_path)
+                        seen_files.add(static_icon_path)
+
+                if not local_candidates:
+                    domain = parsed.netloc
+                    duckduckgo_icon = fetch_duckduckgo_favicon(domain)
+                    if (
+                        duckduckgo_icon != DEFAULT_FAVICON
+                        and duckduckgo_icon not in seen_files
+                    ):
+                        local_candidates.append(duckduckgo_icon)
+                        seen_files.add(duckduckgo_icon)
+
+                if not local_candidates:
+                    domain = parsed.netloc
+                    google_icon = fetch_google_favicon(domain)
+                    if google_icon != DEFAULT_FAVICON and google_icon not in seen_files:
+                        local_candidates.append(google_icon)
+                        seen_files.add(google_icon)
+
+                webicon = (
+                    next(
+                        (
+                            candidate
+                            for candidate in local_candidates
+                            if "og-image" in candidate
+                        ),
+                        None,
+                    )
+                    or next(
+                        (
+                            candidate
+                            for candidate in local_candidates
+                            if "apple-touch-icon" in candidate
+                        ),
+                        None,
+                    )
+                    or (local_candidates[0] if local_candidates else DEFAULT_FAVICON)
+                )
+
+                metadata["webicon"] = webicon
+                metadata["icon_candidates"] = local_candidates
+                logger.info(f"Fetched metadata with Selenium for {url}: {metadata}")
+                return metadata
+        except Exception as e:
+            logger.error(
+                f"Error fetching metadata with Selenium for {url} (attempt {attempt + 1}/{retries}): {str(e)}"
             )
-            icon_type = get_icon_type(icon_url)
-            filename = f"{base_name}_{icon_type}{ext}"
-            local_icon_path = ICON_DIR / filename
-            static_icon_path = download_and_validate_icon(
-                icon_url, local_icon_path, url
-            )
-            if static_icon_path:
-                local_candidates.append(static_icon_path)
-
-        if not local_candidates:
-            favicon_url = urljoin(url, "/favicon.ico")
-            local_icon_path = ICON_DIR / f"{base_name}_favicon.ico"
-            static_icon_path = download_and_validate_icon(
-                favicon_url, local_icon_path, url
-            )
-            if static_icon_path:
-                local_candidates.append(static_icon_path)
-
-        if not local_candidates:
-            domain = parsed.netloc
-            duckduckgo_icon = fetch_duckduckgo_favicon(domain)
-            if duckduckgo_icon != DEFAULT_FAVICON:
-                local_candidates.append(duckduckgo_icon)
-
-        webicon = (
-            next(
-                (
-                    candidate
-                    for candidate in local_candidates
-                    if "og-image" in candidate
-                ),
-                None,
-            )
-            or next(
-                (
-                    candidate
-                    for candidate in local_candidates
-                    if "apple-touch-icon" in candidate
-                ),
-                None,
-            )
-            or (local_candidates[0] if local_candidates else DEFAULT_FAVICON)
-        )
-
-        metadata["webicon"] = webicon
-        metadata["icon_candidates"] = local_candidates
-        driver.quit()
-        logger.info(f"Fetched metadata with Selenium for {url}: {metadata}")
-        return metadata
-    except Exception as e:
-        logger.error(f"Error fetching metadata with Selenium for {url}: {str(e)}")
-        return {"error": str(e)}
+            if attempt + 1 == retries:
+                return {"error": str(e)}
+            time.sleep(2)  # Wait before retrying
+    return {"error": "Selenium retries exhausted"}
 
 
 def setup_geckodriver():
-    url = "https://github.com/mozilla/geckodriver/releases/download/v0.36.0/geckodriver-v0.36.0-win32.zip"
+    url = "https://github.com/mozilla/geckodriver/releases/download/v0.35.0/geckodriver-v0.35.0-win64.zip"
     driver_dir = "drivers"
     driver_path = os.path.join(driver_dir, "geckodriver.exe")
     if not os.path.exists(driver_path):
@@ -545,24 +624,50 @@ def setup_geckodriver():
     return driver_path
 
 
+def is_valid_metadata(metadata: Dict) -> bool:
+    if "error" in metadata:
+        return False
+    title = metadata.get("title", "").lower()
+    invalid_phrases = [
+        "update your browser",
+        "browser not supported",
+        "javascript required",
+    ]
+    if any(phrase in title for phrase in invalid_phrases):
+        return False
+    return (
+        metadata.get("title")
+        or metadata.get("description")
+        or metadata.get("webicon") != DEFAULT_FAVICON
+        or any(metadata.get("extra_metadata", {}).values())
+    )
+
+
 def fetch_metadata_combined(url: str) -> Dict:
-    """Try metadata fetching methods in order: scrape_meta, cloudscraper, selenium."""
+    parsed = urlparse(url)
+    domain = parsed.netloc.lower()
+
     methods = [
         ("scrape_meta", fetch_metadata_scrape_meta),
         ("cloudscraper", fetch_metadata_cloudscraper),
         ("selenium", fetch_metadata_with_selenium),
     ]
 
+    if any(js_domain in domain for js_domain in JS_HEAVY_DOMAINS):
+        methods = [
+            ("selenium", fetch_metadata_with_selenium),
+            ("scrape_meta", fetch_metadata_scrape_meta),
+            ("cloudscraper", fetch_metadata_cloudscraper),
+        ]
+
     for method_name, fetch_func in methods:
         metadata = fetch_func(url)
-        if "error" not in metadata and (
-            metadata.get("title")
-            or metadata.get("description")
-            or metadata.get("webicon") != DEFAULT_FAVICON
-        ):
+        if is_valid_metadata(metadata):
             logger.info(f"Successfully fetched metadata for {url} using {method_name}")
             return metadata
-        logger.warning(f"Method {method_name} failed for {url}, trying next method")
+        logger.warning(
+            f"Method {method_name} failed or returned invalid metadata for {url}, trying next method"
+        )
 
     logger.error(f"All metadata fetching methods failed for {url}")
     return {

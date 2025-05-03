@@ -14,3 +14,4 @@ selenium
 cloudscraper
 metadata_parser
 python-multipart
+python-magic-bin
