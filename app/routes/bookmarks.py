@@ -8,6 +8,7 @@ import json
 import logging
 from pathlib import Path
 from typing import List
+import shutil
 
 router = APIRouter()
 
@@ -91,7 +92,6 @@ def get_bookmarks(db: Session = Depends(get_db)):
         result = []
         for bookmark in bookmarks:
             try:
-                # Convert tags and icon_candidates to lists
                 bookmark.tags = (
                     bookmark.tags.split(",")
                     if isinstance(bookmark.tags, str) and bookmark.tags
@@ -103,7 +103,6 @@ def get_bookmarks(db: Session = Depends(get_db)):
                     and bookmark.icon_candidates
                     else []
                 )
-                # Fetch icon_candidates if missing
                 if not bookmark.icon_candidates:
                     try:
                         logger.info(
@@ -182,7 +181,6 @@ def update_bookmark(bookmark_id: int, data: dict, db: Session = Depends(get_db))
 
         db.commit()
         db.refresh(bookmark_instance)
-        # Convert tags and icon_candidates to lists
         bookmark_instance.tags = (
             bookmark_instance.tags.split(",")
             if isinstance(bookmark_instance.tags, str) and bookmark_instance.tags
@@ -194,7 +192,6 @@ def update_bookmark(bookmark_id: int, data: dict, db: Session = Depends(get_db))
             and bookmark_instance.icon_candidates
             else []
         )
-        # Fetch icon_candidates if missing
         if not bookmark_instance.icon_candidates:
             try:
                 metadata = fetch_metadata_combined(bookmark_instance.url)
@@ -252,13 +249,11 @@ def update_bookmark_webicon(
             logger.error("No webicon provided")
             raise HTTPException(status_code=400, detail="Webicon path required")
 
-        # Validate the webicon path
         icon_path = Path("app") / new_webicon.lstrip("/")
         if not icon_path.exists() or not icon_path.is_file():
             logger.error(f"Invalid webicon path: {new_webicon}")
             raise HTTPException(status_code=400, detail="Invalid webicon path")
 
-        # Ensure the webicon is in the domain's icon folder
         from urllib.parse import urlparse
 
         domain = urlparse(bookmark_instance.url).netloc.replace(".", "_")
@@ -273,7 +268,6 @@ def update_bookmark_webicon(
         bookmark_instance.updated_at = datetime.now()
         db.commit()
         db.refresh(bookmark_instance)
-        # Convert tags and icon_candidates to lists
         bookmark_instance.tags = (
             bookmark_instance.tags.split(",")
             if isinstance(bookmark_instance.tags, str) and bookmark_instance.tags
@@ -285,7 +279,6 @@ def update_bookmark_webicon(
             and bookmark_instance.icon_candidates
             else []
         )
-        # Fetch icon_candidates if missing
         if not bookmark_instance.icon_candidates:
             try:
                 metadata = fetch_metadata_combined(bookmark_instance.url)
@@ -338,6 +331,41 @@ def delete_bookmark(bookmark_id: int, db: Session = Depends(get_db)):
         if not bookmark_instance:
             logger.error(f"Bookmark {bookmark_id} not found")
             raise HTTPException(status_code=404, detail="Bookmark not found")
+
+        # Move icons to recycled_icons
+        from urllib.parse import urlparse
+
+        domain = urlparse(bookmark_instance.url).netloc.replace(".", "_")
+        recycle_dir = Path("app/static/recycled_icons") / domain
+        recycle_dir.mkdir(parents=True, exist_ok=True)
+
+        icons_to_move = []
+        if (
+            bookmark_instance.webicon
+            and bookmark_instance.webicon != "/static/favicon.ico"
+        ):
+            icons_to_move.append(bookmark_instance.webicon)
+        if bookmark_instance.icon_candidates:
+            icon_candidates = (
+                bookmark_instance.icon_candidates.split(",")
+                if isinstance(bookmark_instance.icon_candidates, str)
+                else []
+            )
+            icons_to_move.extend(
+                [ic for ic in icon_candidates if ic != "/static/favicon.ico"]
+            )
+
+        for icon_path in set(icons_to_move):
+            try:
+                src_path = Path("app") / icon_path.lstrip("/")
+                if src_path.exists() and src_path.is_file():
+                    dest_path = recycle_dir / src_path.name
+                    shutil.move(str(src_path), str(dest_path))
+                    logger.info(f"Moved icon {src_path} to {dest_path}")
+                else:
+                    logger.warning(f"Icon {src_path} does not exist or is not a file")
+            except Exception as e:
+                logger.warning(f"Failed to move icon {icon_path}: {str(e)}")
 
         db.delete(bookmark_instance)
         db.commit()
@@ -429,7 +457,6 @@ def search_bookmarks(query: str, db: Session = Depends(get_db)):
         result = []
         for bookmark in bookmarks:
             try:
-                # Convert tags and icon_candidates to lists
                 bookmark.tags = (
                     bookmark.tags.split(",")
                     if isinstance(bookmark.tags, str) and bookmark.tags
@@ -441,7 +468,6 @@ def search_bookmarks(query: str, db: Session = Depends(get_db)):
                     and bookmark.icon_candidates
                     else []
                 )
-                # Fetch icon_candidates if missing
                 if not bookmark.icon_candidates:
                     try:
                         metadata = fetch_metadata_combined(bookmark.url)

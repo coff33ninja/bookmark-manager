@@ -123,14 +123,12 @@
 
     <script>
     document.addEventListener('DOMContentLoaded', function() {
-        // Utility function to sanitize HTML
         function sanitizeHTML(str) {
             const div = document.createElement('div');
             div.textContent = str || '';
             return div.innerHTML;
         }
 
-        // Debounce function to prevent rapid clicks
         function debounce(func, wait) {
             let timeout;
             return function (...args) {
@@ -139,7 +137,6 @@
             };
         }
 
-        // Cache DOM elements
         const bookmarkForm = document.getElementById('bookmark-form');
         const searchForm = document.getElementById('search-form');
         const bookmarksContainer = document.getElementById('bookmarks-container');
@@ -153,7 +150,6 @@
         const editWebiconInput = document.getElementById('edit-webicon');
         const iconUpdateStatus = document.getElementById('icon-update-status');
 
-        // Add bookmark
         bookmarkForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const url = document.getElementById('url').value;
@@ -191,7 +187,6 @@
             }
         });
 
-        // Load bookmarks
         async function loadBookmarks() {
             try {
                 console.log('Starting loadBookmarks');
@@ -215,7 +210,6 @@
                 }
                 bookmarksStatus.textContent = '';
                 bookmarks.forEach(bookmark => {
-                    // Ensure tags and icon_candidates are arrays
                     bookmark.tags = Array.isArray(bookmark.tags) ? bookmark.tags : [];
                     bookmark.icon_candidates = Array.isArray(bookmark.icon_candidates) ? bookmark.icon_candidates : [bookmark.webicon || '/static/favicon.ico'];
                     const card = document.createElement('div');
@@ -224,7 +218,7 @@
                         <div class="card bg-dark text-light bookmark-card" style="position:relative;" tabindex="0" data-bookmark-id="${bookmark.id}">
                             <a href="${sanitizeHTML(bookmark.url)}" target="_blank" style="display:block;">
                                 <div class="card-img-wrapper">
-                                    <img src="${sanitizeHTML(bookmark.webicon) || '/static/favicon.ico'}" class="card-img-top" alt="Bookmark Image" onerror="this.onerror=null;this.src='/static/favicon.ico';">
+                                    <img src="${sanitizeHTML(bookmark.webicon) || '/static/favicon.ico'}" class="card-img-top" alt="Bookmark Image" loading="lazy" onerror="this.onerror=null;this.src='/static/favicon.ico';">
                                 </div>
                             </a>
                             <div class="bookmark-actions">
@@ -297,7 +291,6 @@
             }
         }
 
-        // Show icon candidates in the edit modal
         function showEditIconCandidates(bookmarkId, currentWebicon, candidates) {
             console.log('Showing icon candidates for bookmark', bookmarkId, 'Candidates:', candidates);
             editIconCandidates.innerHTML = '';
@@ -351,7 +344,6 @@
                         editWebiconInput.value = icon;
                         iconUpdateStatus.textContent = 'Icon updated!';
                         iconUpdateStatus.style.color = 'limegreen';
-                        // Update the bookmark card
                         const card = document.querySelector(`.bookmark-card[data-bookmark-id="${bookmarkId}"]`);
                         if (card) {
                             const imgElement = card.querySelector('.card-img-top');
@@ -381,7 +373,6 @@
             });
         }
 
-        // Helper to generate icon labels
         function getIconLabel(icon) {
             if (icon.includes('og-image')) return 'OG Image';
             if (icon.includes('apple-touch-icon')) return 'Apple Icon';
@@ -391,7 +382,6 @@
             return 'Other';
         }
 
-        // Handle delete confirmation
         confirmDeleteBtn.addEventListener('click', async () => {
             const bookmarkId = deleteBookmarkModal.getAttribute('data-bookmark-id');
             if (!bookmarkId) return;
@@ -414,7 +404,6 @@
             }
         });
 
-        // Edit bookmark form submission
         editBookmarkForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const bookmarkId = editBookmarkModal.getAttribute('data-bookmark-id');
@@ -442,7 +431,6 @@
             }
         });
 
-        // Page status check in edit modal
         document.getElementById('check-page-status').addEventListener('click', async function() {
             const url = document.getElementById('edit-url').value;
             const statusSpan = document.getElementById('page-status-result');
@@ -464,7 +452,6 @@
             }
         });
 
-        // Update metadata in edit modal
         document.getElementById('update-metadata').addEventListener('click', async function() {
             const url = document.getElementById('edit-url').value;
             const bookmarkId = editBookmarkModal.getAttribute('data-bookmark-id');
@@ -487,7 +474,6 @@
             }
         });
 
-        // Search bookmarks
         searchForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const query = document.getElementById('search-query').value;
@@ -512,7 +498,6 @@
                 }
                 bookmarksStatus.textContent = '';
                 results.forEach(result => {
-                    // Ensure tags and icon_candidates are arrays
                     result.tags = Array.isArray(result.tags) ? result.tags : [];
                     result.icon_candidates = Array.isArray(result.icon_candidates) ? result.icon_candidates : [result.webicon || '/static/favicon.ico'];
                     const card = document.createElement('div');
@@ -521,7 +506,7 @@
                         <div class="card bg-dark text-light bookmark-card" style="position:relative;" tabindex="0" data-bookmark-id="${result.id}">
                             <a href="${sanitizeHTML(result.url)}" target="_blank" style="display:block;">
                                 <div class="card-img-wrapper">
-                                    <img src="${sanitizeHTML(result.webicon) || '/static/favicon.ico'}" class="card-img-top" alt="Bookmark Image" onerror="this.onerror=null;this.src='/static/favicon.ico';">
+                                    <img src="${sanitizeHTML(result.webicon) || '/static/favicon.ico'}" class="card-img-top" alt="Bookmark Image" loading="lazy" onerror="this.onerror=null;this.src='/static/favicon.ico';">
                                 </div>
                             </a>
                             <div class="bookmark-actions">
@@ -594,7 +579,6 @@
             }
         });
 
-        // Initial load
         loadBookmarks();
     });
     </script>

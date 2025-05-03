@@ -14,7 +14,7 @@ body.dark-mode {
 
 .form-control.bg-dark {
     background-color: #2a2a2a;
-    border-color: #444;
+    border: 1px solid #444;
     color: #ffffff;
 }
 
@@ -29,75 +29,76 @@ body.dark-mode {
     filter: invert(1);
 }
 
+#bookmark-popup {
+    position: absolute;
+    background-color: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 6px;
+    padding: 10px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    display: none;
+    max-width: 300px;
+    font-size: 0.9rem;
+    color: #ffffff;
+}
+
 .bookmark-actions {
     position: absolute;
-    top: 10px;
-    right: 10px;
+    top: 5px;
+    right: 5px;
     display: flex;
-    gap: 10px;
+    gap: 5px;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.bookmark-card:hover .bookmark-actions {
+    opacity: 1;
+}
+
+.bookmark-card {
+    transition: box-shadow 0.2s;
+}
+
+.bookmark-card:hover {
+    box-shadow: 0 0 10px #bb86fc !important;
 }
 
 .bookmark-actions span {
     cursor: pointer;
-    font-size: 0.9rem;
-    padding: 5px;
-    background: rgba(0, 0, 0, 0.5);
-    border-radius: 4px;
+    font-size: 1rem;
+    padding: 2px;
+    background-color: #2a2a2a;
+    border-radius: 3px;
 }
 
 .bookmark-actions span:hover {
-    background: #bb86fc;
-    color: #000;
+    background-color: #bb86fc;
 }
 
 .card-img-wrapper {
-    height: 150px;
+    width: 100%;
+    height: 100px;
     display: flex;
-    justify-content: center;
     align-items: center;
+    justify-content: center;
     overflow: hidden;
     background-color: #2a2a2a;
 }
 
 .card-img-top {
-    max-height: 150px;
-    max-width: 100%;
-    height: auto;
+    width: 100px;
+    height: 100px;
     object-fit: contain;
-    padding: 0;
-    image-rendering: crisp-edges;
-    image-rendering: pixelated;
-}
-
-#bookmark-popup {
-    position: absolute;
-    background: #333;
-    color: #fff;
-    padding: 10px;
+    object-position: center;
+    background-color: transparent;
+    image-rendering: crisp-edges; /* Preserve pixel clarity for small icons */
     border-radius: 5px;
-    max-width: 300px;
-    z-index: 1000;
-    display: none;
-    pointer-events: none;
-}
-
-/* Shrink edit modal font size and width */
-#editBookmarkModal .modal-content {
-    font-size: 0.6rem !important;
-    max-width: 320px !important;
-    margin: auto !important;
-}
-#editBookmarkModal .modal-body {
-    padding: 0.6rem 0.6rem !important;
-}
-#editBookmarkModal .form-label {
-    font-size: 0.6rem !important;
-}
-#editBookmarkModal .form-control {
-    font-size: 0.6rem !important;
-    padding: 0.15rem 0.3rem !important;
-}
-#editBookmarkModal .btn {
-    font-size: 0.6rem !important;
-    padding: 0.15rem 0.3rem !important;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    transition: transform 0.2s;
+    cursor: pointer;
+    &:hover {
+        transform: scale(1.05);
+    }
 }

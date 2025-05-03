@@ -1,3 +1,4 @@
+import shutil
 import requests
 import cloudscraper
 from bs4 import BeautifulSoup
@@ -8,6 +9,7 @@ from PIL import Image
 from urllib.parse import urlparse, urljoin, urlunparse
 from pathlib import Path
 import os
+import io
 import zipfile
 import logging
 from functools import lru_cache
@@ -16,7 +18,12 @@ import time
 import magic
 import hashlib
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    filename="uvicorn.log",
+    filemode="a",
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 logger = logging.getLogger(__name__)
 
 BASE_ICON_DIR = Path("app/static/icons")
@@ -644,38 +651,158 @@ def is_valid_metadata(metadata: Dict) -> bool:
         or any(metadata.get("extra_metadata", {}).values())
     )
 
-
 def fetch_metadata_combined(url: str) -> Dict:
-    parsed = urlparse(url)
-    domain = parsed.netloc.lower()
+    try:
+        logger.info(f"Starting metadata fetch for URL: {url}")
+        if not url.startswith(("http://", "https://")):
+            url = "https://" + url
+        parsed_url = urlparse(url)
+        domain = parsed_url.netloc.replace(".", "_")
+        base_dir = Path("app/static/icons") / domain
+        base_dir.mkdir(parents=True, exist_ok=True)
+        recycle_dir = Path("app/static/recycled_icons") / domain
 
-    methods = [
-        ("scrape_meta", fetch_metadata_scrape_meta),
-        ("cloudscraper", fetch_metadata_cloudscraper),
-        ("selenium", fetch_metadata_with_selenium),
-    ]
+        # Check recycled icons
+        recycled_icons = []
+        if recycle_dir.exists():
+            for icon_path in recycle_dir.glob("*"):
+                if icon_path.is_file():
+                    relative_path = f"/static/recycled_icons/{domain}/{icon_path.name}"
+                    recycled_icons.append(relative_path)
+            if recycled_icons:
+                logger.info(f"Found {len(recycled_icons)} recycled icons for {domain}: {recycled_icons}")
+                webicon = recycled_icons[0]
+                for recycled_icon in recycled_icons:
+                    src_path = Path("app") / recycled_icon.lstrip("/")
+                    dest_path = base_dir / src_path.name
+                    if not dest_path.exists():
+                        shutil.move(str(src_path), str(dest_path))
+                        logger.info(f"Moved recycled icon {src_path} to {dest_path}")
+                return {
+                    "title": "Reused bookmark",
+                    "description": "",
+                    "webicon": f"/static/icons/{domain}/{Path(recycled_icons[0]).name}",
+                    "icon_candidates": [f"/static/icons/{domain}/{Path(ic).name}" for ic in recycled_icons],
+                    "extra_metadata": {"url": url}
+                }
 
-    if any(js_domain in domain for js_domain in JS_HEAVY_DOMAINS):
-        methods = [
-            ("selenium", fetch_metadata_with_selenium),
-            ("scrape_meta", fetch_metadata_scrape_meta),
-            ("cloudscraper", fetch_metadata_cloudscraper),
-        ]
+        scraper = cloudscraper.create_scraper()
+        try:
+            response = scraper.get(url, timeout=10)
+            response.raise_for_status()
+        except Exception as e:
+            logger.error(f"Failed to fetch {url}: {str(e)}")
+            return {"error": f"Failed to fetch URL: {str(e)}"}
 
-    for method_name, fetch_func in methods:
-        metadata = fetch_func(url)
-        if is_valid_metadata(metadata):
-            logger.info(f"Successfully fetched metadata for {url} using {method_name}")
-            return metadata
-        logger.warning(
-            f"Method {method_name} failed or returned invalid metadata for {url}, trying next method"
-        )
+        soup = BeautifulSoup(response.text, "html.parser")
+        title = soup.title.string.strip() if soup.title else "No title"
+        logger.info(f"Extracted title: {title}")
 
-    logger.error(f"All metadata fetching methods failed for {url}")
-    return {
-        "title": "No title",
-        "description": "",
-        "webicon": DEFAULT_FAVICON,
-        "icon_candidates": [],
-        "error": "All fetching methods failed",
-    }
+        description = ""
+        meta_desc = soup.find("meta", attrs={"name": "description"}) or soup.find("meta", attrs={"property": "og:description"})
+        if meta_desc and meta_desc.get("content"):
+            description = meta_desc["content"].strip()
+        logger.info(f"Extracted description: {description[:50]}...")
+
+        icon_candidates = []
+        webicon = None
+        icons = []
+
+        # Prioritize high-res icons
+        apple_icon = soup.find("link", rel="apple-touch-icon")
+        if apple_icon and apple_icon.get("href"):
+            icons.append(("apple-touch-icon", apple_icon["href"]))
+        og_image = soup.find("meta", attrs={"property": "og:image"})
+        if og_image and og_image["content"]:
+            icons.append(("og-image", og_image["content"]))
+        favicon = soup.find("link", rel="icon") or soup.find("link", rel="shortcut icon")
+        if favicon and favicon.get("href"):
+            icons.append(("favicon", favicon["href"]))
+
+        mime = magic.Magic(mime=True)
+        for idx, (icon_type, icon_url) in enumerate(icons):
+            try:
+                absolute_icon_url = urljoin(url, icon_url)
+                icon_response = scraper.get(absolute_icon_url, timeout=5)
+                icon_response.raise_for_status()
+                content_type = icon_response.headers.get("content-type", "")
+                if not content_type.startswith("image/"):
+                    logger.warning(f"Skipping non-image content for {absolute_icon_url}: {content_type}")
+                    continue
+
+                # Determine file extension and suitability
+                file_mime = mime.from_buffer(icon_response.content)
+                file_ext = file_mime.split("/")[-1].lower()
+                if file_ext == "x-icon":
+                    file_ext = "ico"
+                elif file_ext not in ["png", "jpeg", "jpg"]:
+                    file_ext = "png"
+
+                # Check if icon can be preserved as-is
+                preserve_original = False
+                if file_mime in ["image/png", "image/x-icon"]:
+                    try:
+                        img = Image.open(io.BytesIO(icon_response.content))
+                        img.verify()
+                        img = Image.open(io.BytesIO(icon_response.content))  # Reopen for size check
+                        width, height = img.size
+                        if 16 <= width <= 180 and 16 <= height <= 180:
+                            preserve_original = True
+                            logger.info(f"Preserving original {file_mime} for {absolute_icon_url} (size: {width}x{height})")
+                    except Exception as e:
+                        logger.warning(f"Failed to verify image size for {absolute_icon_url}: {str(e)}")
+
+                icon_path = base_dir / f"icon_{idx}.{file_ext}"
+                if preserve_original:
+                    # Save original content
+                    with open(icon_path, "wb") as f:
+                        f.write(icon_response.content)
+                    logger.info(f"Saved original icon: {icon_path}")
+                else:
+                    # Process with PIL
+                    img = Image.open(io.BytesIO(icon_response.content))
+                    img.verify()
+                    img = Image.open(io.BytesIO(icon_response.content))  # Reopen for processing
+                    if img.mode not in ["RGB", "RGBA"]:
+                        img = img.convert("RGBA" if "A" in img.mode else "RGB")
+                    if max(img.size) > 128:
+                        img = img.resize((128, 128), Image.Resampling.LANCZOS)
+                    img.save(icon_path, "PNG", quality=95)
+                    logger.info(f"Saved processed icon: {icon_path}")
+
+                relative_path = f"/static/icons/{domain}/{icon_path.name}"
+                icon_candidates.append(relative_path)
+                if not webicon and icon_type in ["apple-touch-icon", "og-image"]:
+                    webicon = relative_path
+            except Exception as e:
+                logger.warning(f"Failed to process icon {icon_url}: {str(e)}")
+                continue
+
+        if not icon_candidates:
+            logger.warning(f"No valid icons found for {url}")
+            webicon = "/static/favicon.ico"
+            icon_candidates = [webicon]
+
+        if not webicon:
+            webicon = icon_candidates[0]
+
+        return {
+            "title": title,
+            "description": description,
+            "webicon": webicon,
+            "icon_candidates": icon_candidates,
+            "extra_metadata": {
+                "og_title": soup.find("meta", attrs={"property": "og:title"})["content"] if soup.find("meta", attrs={"property": "og:title"}) else None,
+                "url": url
+            }
+        }
+    except Exception as e:
+        logger.error(f"Metadata fetch failed for {url}: {str(e)}", exc_info=True)
+        return {
+            "error": f"Metadata fetch failed: {str(e)}",
+            "title": "No title",
+            "description": "",
+            "webicon": "/static/favicon.ico",
+            "icon_candidates": [],
+            "extra_metadata": {}
+        }
