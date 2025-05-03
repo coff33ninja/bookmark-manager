@@ -25,13 +25,33 @@ logger = logging.getLogger(__name__)
 TAG_VOCAB = [
     "tech", "video", "news", "blog", "social", "education", "entertainment",
     "music", "gaming", "sports", "food", "travel", "health", "finance", "anime",
-    "article", "tutorial", "recipe", "review", "shopping", "portfolio", "forum",
-    "productivity", "science", "art", "photography", "coding", "design", "business",
-    "local-server", "remote-server", "vpn-server", "local-server-offline", "unknown-server", "invalid-server"
+    "manga", "movie", "book", "tv", "podcast", "documentary", "article",
+    "tutorial", "recipe", "review", "how-to", "guide", "lifestyle", "fashion",
+    "shopping", "portfolio", "forum", "productivity", "science", "art",
+    "photography", "coding", "design", "programming", "development", "business",
+    "local-server", "remote-server", "vpn-server", "local-server-online",
+    "local-server-offline", "remote-server-online", "remote-server-offline",
+    "vpn-server-online", "vpn-server-offline", "unknown-server", "invalid-server",
+    "AI", "artificial-intelligence", "deep-learning", "natural-language-processing",
+    "computer-vision", "machine-learning", "data-science", "data-visualization",
+    "assistant", "chatbots", "streaming", "software", "portable", "downloads",
+    "networking", "cloud-computing", "cloud-storage", "cloud-services",
+    "cloud-hosting", "web-development", "web-design", "web-hosting",
+    "web-services", "web-applications", "tools", "productivity-tools",
+    "music-generation", "art-generation", "image-generation", "video-generation",
+    "text-generation", "3d-modeling", "3d-design", "3d-animation",
+    "genshin-impact", "gaming-tools", "e-commerce", "fitness", "writing",
+    "collaboration", "open-source", "tutorials", "creative"
 ]
 
 # User-provided tags for training
-USER_TAG_VOCAB = []
+USER_TAG_VOCAB = [
+    "AI", "anime", "coding", "music", "blog", "games", "video", "social",
+    "vpn-server", "manga", "data-science", "machine-learning", "art", "chatbots",
+    "development", "genshin-impact", "streaming", "software", "portable",
+    "downloads", "networking", "tools", "music-generation", "art-generation",
+    "image-generation", "gaming-tools", "open-source", "collaboration"
+]
 
 # Domain to type mapping for categorization
 DOMAIN_TYPES = {
@@ -59,7 +79,47 @@ DOMAIN_TYPES = {
     "webmd.com": "health",
     "bloomberg.com": "finance",
     "cnbc.com": "finance",
-    "crunchyroll.com": "anime"
+    "crunchyroll.com": "anime",
+    "theresanaiforthat.com": "AI",
+    "grok.com": "AI",
+    "chatgpt.com": "AI",
+    "gemini.google.com": "AI",
+    "pogs.cafe": "AI",
+    "civitai.com": "AI",
+    "chat.deepseek.com": "AI",
+    "lovable.dev": "AI",
+    "hianimez.to": "anime",
+    "allmanga.to": "manga",
+    "github.com": "coding",
+    "kaggle.com": "data-science",
+    "colab.research.google.com": "machine-learning",
+    "dashboard.ngrok.com": "vpn-server",
+    "tailscale.com": "vpn-server",
+    "pinggy.io": "vpn-server",
+    "riffusion.com": "music-generation",
+    "suno.com": "music-generation",
+    "fcportables.com": "software",
+    "filecr.com": "software",
+    "paimon.moe": "gaming-tools",
+    "instagram.com": "social",
+    "tiktok.com": "social",
+    "netflix.com": "streaming",
+    "hulu.com": "streaming",
+    "amazon.com": "e-commerce",
+    "ebay.com": "e-commerce",
+    "fitbit.com": "fitness",
+    "myfitnesspal.com": "fitness",
+    "stackoverflow.com": "coding",
+    "dev.to": "coding",
+    "huggingface.co": "AI",
+    "openai.com": "AI",
+    "anilist.co": "anime",
+    "mangadex.org": "manga",
+    "bandcamp.com": "music",
+    "steamcommunity.com": "gaming",
+    "patreon.com": "creative",
+    "behance.net": "art",
+    "dribbble.com": "design",
 }
 
 # Cache for tag suggestions
