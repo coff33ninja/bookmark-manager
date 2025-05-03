@@ -17,7 +17,11 @@
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav ms-auto"></ul>
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <button id="toggle-view" class="btn btn-outline-light">Switch to Flat View</button>
+                    </li>
+                </ul>
             </div>
         </div>
     </nav>
@@ -154,6 +158,8 @@
         const tagSuggestions = document.getElementById('tag-suggestions');
         const editTagSuggestions = document.getElementById('edit-tag-suggestions');
         const urlInput = document.getElementById('url');
+        const toggleViewBtn = document.getElementById('toggle-view');
+        let isCategorizedView = true;
 
         async function fetchTagSuggestions(title, description, url) {
             try {
@@ -204,10 +210,8 @@
                     body: JSON.stringify({ url })
                 });
                 const data = await response.json();
-                console.log('Add bookmark metadata:', data);
                 if (!response.ok) throw new Error(data.detail || 'Failed to fetch metadata');
 
-                // Fetch tag suggestions
                 const tags = await fetchTagSuggestions(data.title || '', data.description || '', url);
                 renderTagSuggestions(tags, tagSuggestions, null);
 
@@ -220,7 +224,7 @@
                         description: data.description || null,
                         webicon: data.webicon || null,
                         extra_metadata: null,
-                        tags: tags, // Use suggested tags by default
+                        tags: tags,
                         is_favorite: false
                     })
                 });
@@ -237,7 +241,6 @@
             }
         });
 
-        // Suggest tags on URL input focus
         urlInput.addEventListener('focus', async () => {
             const url = urlInput.value;
             if (url) {
@@ -260,113 +263,59 @@
 
         async function loadBookmarks() {
             try {
-                console.log('Starting loadBookmarks');
                 bookmarksStatus.textContent = 'Loading bookmarks...';
-                const response = await fetch('/cluster-bookmarks');
-                console.log('Cluster response status:', response.status);
+                const endpoint = isCategorizedView ? '/categorize-bookmarks' : '/bookmarks';
+                const response = await fetch(endpoint);
                 const rawText = await response.text();
-                console.log('Cluster raw response:', rawText);
-                let clusters;
+                let data;
                 try {
-                    clusters = JSON.parse(rawText);
+                    data = JSON.parse(rawText);
                 } catch (e) {
                     throw new Error('Invalid JSON response: ' + e.message);
                 }
-                if (!response.ok) throw new Error(`Failed to load clusters (Status: ${response.status})`);
-                console.log('Loaded clusters:', clusters);
+                if (!response.ok) throw new Error(`Failed to load data (Status: ${response.status})`);
                 bookmarksContainer.innerHTML = '';
-                if (clusters.length === 0 || clusters.every(c => c.bookmarks.length === 0)) {
+                if (isCategorizedView && (data.length === 0 || data.every(c => c.bookmarks.length === 0))) {
+                    bookmarksStatus.textContent = 'No bookmarks available';
+                    return;
+                } else if (!isCategorizedView && data.length === 0) {
                     bookmarksStatus.textContent = 'No bookmarks available';
                     return;
                 }
                 bookmarksStatus.textContent = '';
-                clusters.forEach(cluster => {
-                    const section = document.createElement('section');
-                    section.className = 'mb-4';
-                    section.innerHTML = `<h3 class="text-light">${sanitizeHTML(cluster.label)}</h3><div class="row g-3"></div>`;
-                    const clusterContainer = section.querySelector('.row');
-                    cluster.bookmarks.forEach(bookmark => {
-                        bookmark.tags = Array.isArray(bookmark.tags) ? bookmark.tags : [];
-                        bookmark.icon_candidates = Array.isArray(bookmark.icon_candidates) ? bookmark.icon_candidates : [bookmark.webicon || '/static/favicon.ico'];
-                        const card = document.createElement('div');
-                        card.className = 'col-md-2';
-                        card.innerHTML = `
-                            <div class="card bg-dark text-light bookmark-card" style="position:relative;" tabindex="0" data-bookmark-id="${bookmark.id}">
-                                <a href="${sanitizeHTML(bookmark.url)}" target="_blank" style="display:block;">
-                                    <div class="card-img-wrapper">
-                                        <img src="${sanitizeHTML(bookmark.webicon) || '/static/favicon.ico'}" class="card-img-top" alt="Bookmark Image" loading="lazy" onerror="this.onerror=null;this.src='/static/favicon.ico';">
-                                    </div>
-                                </a>
-                                <div class="bookmark-actions">
-                                    <span class="edit-bookmark" title="Edit" aria-label="Edit bookmark">✏️</span>
-                                    <span class="delete-bookmark" title="Delete" aria-label="Delete bookmark">🗑️</span>
-                                    <span class="favorite-bookmark" title="${bookmark.is_favorite ? 'Unfavorite' : 'Favorite'}" aria-label="${bookmark.is_favorite ? 'Unfavorite' : 'Favorite'} bookmark">${bookmark.is_favorite ? '⭐' : '☆'}</span>
-                                </div>
-                                <div class="card-body">
-                                    <h5 class="card-title">${sanitizeHTML(bookmark.title)}</h5>
-                                </div>
+
+                if (isCategorizedView) {
+                    data.forEach((category, index) => {
+                        const section = document.createElement('section');
+                        section.className = 'category-section mb-5';
+                        section.setAttribute('aria-labelledby', `category-${index}-title`);
+                        section.innerHTML = `
+                            <div class="category-header">
+                                <h3 id="category-${index}-title" class="text-light">${sanitizeHTML(category.label)}</h3>
+                                <button class="btn btn-sm btn-outline-light toggle-category" data-bs-toggle="collapse" data-bs-target="#category-${index}" aria-expanded="true" aria-controls="category-${index}">
+                                    Toggle
+                                </button>
+                            </div>
+                            <div id="category-${index}" class="collapse show">
+                                <div class="row g-4 category-container"></div>
                             </div>
                         `;
-                        const cardDiv = card.querySelector('.card');
-                        cardDiv.addEventListener('mouseenter', function(e) {
-                            this.style.boxShadow = '0 0 10px #bb86fc';
-                            popup.innerHTML = `<strong>${sanitizeHTML(bookmark.title)}</strong><br><br>${sanitizeHTML(bookmark.description) || 'No description available'}`;
-                            popup.style.display = 'block';
-                            const rect = this.getBoundingClientRect();
-                            popup.style.top = (window.scrollY + rect.bottom + 5) + 'px';
-                            popup.style.left = (window.scrollX + rect.left) + 'px';
+                        const categoryContainer = section.querySelector('.category-container');
+                        category.bookmarks.forEach(bookmark => {
+                            renderBookmarkCard(bookmark, categoryContainer);
                         });
-                        cardDiv.addEventListener('mouseleave', function() {
-                            this.style.boxShadow = '';
-                            popup.style.display = 'none';
-                        });
-                        cardDiv.addEventListener('mousemove', function(e) {
-                            popup.style.top = (e.clientY + window.scrollY + 10) + 'px';
-                            popup.style.left = (e.clientX + window.scrollX + 10) + 'px';
-                        });
-                        cardDiv.addEventListener('keydown', (e) => {
-                            if (e.key === 'Enter') cardDiv.querySelector('a').click();
-                        });
-                        cardDiv.querySelector('.edit-bookmark').addEventListener('click', async (e) => {
-                            e.stopPropagation();
-                            document.getElementById('edit-title').value = bookmark.title || '';
-                            document.getElementById('edit-description').value = bookmark.description || '';
-                            document.getElementById('edit-tags').value = (bookmark.tags || []).join(', ');
-                            document.getElementById('edit-url').value = bookmark.url || '';
-                            document.getElementById('edit-extra-metadata').value = bookmark.extra_metadata ? JSON.stringify(bookmark.extra_metadata, null, 2) : '';
-                            editBookmarkModal.setAttribute('data-bookmark-id', bookmark.id);
-                            showEditIconCandidates(bookmark.id, bookmark.webicon, bookmark.icon_candidates || [bookmark.webicon]);
-
-                            // Fetch tag suggestions for edit modal
-                            const tags = await fetchTagSuggestions(bookmark.title || '', bookmark.description || '', bookmark.url);
-                            renderTagSuggestions(tags, editTagSuggestions, document.getElementById('edit-tags'));
-
-                            new bootstrap.Modal(editBookmarkModal).show();
-                        });
-                        cardDiv.querySelector('.delete-bookmark').addEventListener('click', debounce((e) => {
-                            e.stopPropagation();
-                            deleteBookmarkModal.setAttribute('data-bookmark-id', bookmark.id);
-                            new bootstrap.Modal(deleteBookmarkModal).show();
-                        }, 1000));
-                        cardDiv.querySelector('.favorite-bookmark').addEventListener('click', async (e) => {
-                            e.stopPropagation();
-                            try {
-                                const response = await fetch(`/bookmarks/${bookmark.id}`, {
-                                    method: 'PATCH',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ is_favorite: !bookmark.is_favorite })
-                                });
-                                if (!response.ok) throw new Error('Failed to update favorite status');
-                                await loadBookmarks();
-                            } catch (error) {
-                                console.error('Favorite bookmark error:', error);
-                                alert('Error: ' + error.message);
-                            }
-                        });
-                        clusterContainer.appendChild(card);
+                        bookmarksContainer.appendChild(section);
+                    });
+                } else {
+                    const section = document.createElement('section');
+                    section.className = 'mb-4';
+                    section.innerHTML = `<h3 class="text-light">All Bookmarks</h3><div class="row g-4 category-container"></div>`;
+                    const categoryContainer = section.querySelector('.category-container');
+                    data.forEach(bookmark => {
+                        renderBookmarkCard(bookmark, categoryContainer);
                     });
                     bookmarksContainer.appendChild(section);
-                });
+                }
             } catch (error) {
                 console.error('Load bookmarks error:', error);
                 bookmarksStatus.textContent = 'Error loading bookmarks: ' + error.message;
@@ -374,12 +323,91 @@
             }
         }
 
+        function renderBookmarkCard(bookmark, container) {
+            bookmark.tags = Array.isArray(bookmark.tags) ? bookmark.tags : [];
+            bookmark.icon_candidates = Array.isArray(bookmark.icon_candidates) ? bookmark.icon_candidates : [bookmark.webicon || '/static/favicon.ico'];
+            const card = document.createElement('div');
+            card.className = 'col-md-6 col-sm-6';
+            card.innerHTML = `
+                <div class="card bg-dark text-light bookmark-card" style="position:relative;" tabindex="0" data-bookmark-id="${bookmark.id}">
+                    <a href="${sanitizeHTML(bookmark.url)}" target="_blank" style="display:block;">
+                        <div class="card-img-wrapper">
+                            <img src="${sanitizeHTML(bookmark.webicon) || '/static/favicon.ico'}" class="card-img-top" alt="Bookmark Image" loading="lazy" onerror="this.onerror=null;this.src='/static/favicon.ico';">
+                        </div>
+                    </a>
+                    <div class="bookmark-actions">
+                        <span class="edit-bookmark" title="Edit" aria-label="Edit bookmark">✏️</span>
+                        <span class="delete-bookmark" title="Delete" aria-label="Delete bookmark">🗑️</span>
+                        <span class="favorite-bookmark" title="${bookmark.is_favorite ? 'Unfavorite' : 'Favorite'}" aria-label="${bookmark.is_favorite ? 'Unfavorite' : 'Favorite'} bookmark">${bookmark.is_favorite ? '⭐' : '☆'}</span>
+                    </div>
+                    <div class="card-body">
+                        <h5 class="card-title">${sanitizeHTML(bookmark.title)}</h5>
+                        <p class="card-text text-muted">${bookmark.tags.join(', ')}</p>
+                    </div>
+                </div>
+            `;
+            const cardDiv = card.querySelector('.card');
+            cardDiv.addEventListener('mouseenter', function(e) {
+                this.style.boxShadow = '0 0 10px #bb86fc';
+                popup.innerHTML = `<strong>${sanitizeHTML(bookmark.title)}</strong><br><br>${sanitizeHTML(bookmark.description) || 'No description available'}`;
+                popup.style.display = 'block';
+                const rect = this.getBoundingClientRect();
+                popup.style.top = (window.scrollY + rect.bottom + 5) + 'px';
+                popup.style.left = (window.scrollX + rect.left) + 'px';
+            });
+            cardDiv.addEventListener('mouseleave', function() {
+                this.style.boxShadow = '';
+                popup.style.display = 'none';
+            });
+            cardDiv.addEventListener('mousemove', function(e) {
+                popup.style.top = (e.clientY + window.scrollY + 10) + 'px';
+                popup.style.left = (e.clientX + window.scrollX + 10) + 'px';
+            });
+            cardDiv.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') cardDiv.querySelector('a').click();
+            });
+            cardDiv.querySelector('.edit-bookmark').addEventListener('click', async (e) => {
+                e.stopPropagation();
+                document.getElementById('edit-title').value = bookmark.title || '';
+                document.getElementById('edit-description').value = bookmark.description || '';
+                document.getElementById('edit-tags').value = (bookmark.tags || []).join(', ');
+                document.getElementById('edit-url').value = bookmark.url || '';
+                document.getElementById('edit-extra-metadata').value = bookmark.extra_metadata ? JSON.stringify(bookmark.extra_metadata, null, 2) : '';
+                editBookmarkModal.setAttribute('data-bookmark-id', bookmark.id);
+                showEditIconCandidates(bookmark.id, bookmark.webicon, bookmark.icon_candidates || [bookmark.webicon]);
+
+                const tags = await fetchTagSuggestions(bookmark.title || '', bookmark.description || '', bookmark.url);
+                renderTagSuggestions(tags, editTagSuggestions, document.getElementById('edit-tags'));
+
+                new bootstrap.Modal(editBookmarkModal).show();
+            });
+            cardDiv.querySelector('.delete-bookmark').addEventListener('click', debounce((e) => {
+                e.stopPropagation();
+                deleteBookmarkModal.setAttribute('data-bookmark-id', bookmark.id);
+                new bootstrap.Modal(deleteBookmarkModal).show();
+            }, 1000));
+            cardDiv.querySelector('.favorite-bookmark').addEventListener('click', async (e) => {
+                e.stopPropagation();
+                try {
+                    const response = await fetch(`/bookmarks/${bookmark.id}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ is_favorite: !bookmark.is_favorite })
+                    });
+                    if (!response.ok) throw new Error('Failed to update favorite status');
+                    await loadBookmarks();
+                } catch (error) {
+                    console.error('Favorite bookmark error:', error);
+                    alert('Error: ' + error.message);
+                }
+            });
+            container.appendChild(card);
+        }
+
         function showEditIconCandidates(bookmarkId, currentWebicon, candidates) {
-            console.log('Showing icon candidates for bookmark', bookmarkId, 'Candidates:', candidates);
             editIconCandidates.innerHTML = '';
             iconUpdateStatus.textContent = '';
             if (!candidates || candidates.length === 0) {
-                console.warn('No icon candidates available for bookmark', bookmarkId);
                 const noIcons = document.createElement('div');
                 noIcons.textContent = 'No icon candidates available';
                 noIcons.style.color = '#888';
@@ -419,7 +447,6 @@
                         });
                         const data = await response.json();
                         if (!response.ok) throw new Error(data.detail || 'Failed to update icon');
-                        console.log('Icon updated successfully:', data);
                         Array.from(editIconCandidates.children).forEach(child => {
                             child.querySelector('img').style.border = '2px solid transparent';
                         });
@@ -545,14 +572,12 @@
                     body: JSON.stringify({ url })
                 });
                 const data = await response.json();
-                console.log('Update metadata response:', data);
                 if (!response.ok) throw new Error(data.detail || 'Failed to fetch metadata');
                 document.getElementById('edit-title').value = data.title || '';
                 document.getElementById('edit-description').value = data.description || '';
                 document.getElementById('edit-extra-metadata').value = data.extra_metadata ? JSON.stringify(data.extra_metadata, null, 2) : '';
                 showEditIconCandidates(bookmarkId, data.webicon, data.icon_candidates);
 
-                // Fetch tag suggestions after updating metadata
                 const tags = await fetchTagSuggestions(data.title || '', data.description || '', url);
                 renderTagSuggestions(tags, editTagSuggestions, document.getElementById('edit-tags'));
             } catch (error) {
@@ -567,9 +592,7 @@
             try {
                 bookmarksStatus.textContent = 'Searching bookmarks...';
                 const response = await fetch(`/search?query=${encodeURIComponent(query)}`);
-                console.log('Search response status:', response.status);
                 const rawText = await response.text();
-                console.log('Search raw response:', rawText);
                 let results;
                 try {
                     results = JSON.parse(rawText);
@@ -577,7 +600,6 @@
                     throw new Error('Invalid JSON response: ' + e.message);
                 }
                 if (!response.ok) throw new Error('Failed to search bookmarks');
-                console.log('Search results:', results);
                 bookmarksContainer.innerHTML = '';
                 if (results.length === 0) {
                     bookmarksStatus.textContent = 'No bookmarks found';
@@ -586,87 +608,10 @@
                 bookmarksStatus.textContent = '';
                 const section = document.createElement('section');
                 section.className = 'mb-4';
-                section.innerHTML = `<h3 class="text-light">Search Results</h3><div class="row g-3"></div>`;
-                const searchContainer = section.querySelector('.row');
+                section.innerHTML = `<h3 class="text-light">Search Results</h3><div class="row g-4 category-container"></div>`;
+                const searchContainer = section.querySelector('.category-container');
                 results.forEach(result => {
-                    result.tags = Array.isArray(result.tags) ? result.tags : [];
-                    result.icon_candidates = Array.isArray(result.icon_candidates) ? result.icon_candidates : [result.webicon || '/static/favicon.ico'];
-                    const card = document.createElement('div');
-                    card.className = 'col-md-2';
-                    card.innerHTML = `
-                        <div class="card bg-dark text-light bookmark-card" style="position:relative;" tabindex="0" data-bookmark-id="${result.id}">
-                            <a href="${sanitizeHTML(result.url)}" target="_blank" style="display:block;">
-                                <div class="card-img-wrapper">
-                                    <img src="${sanitizeHTML(result.webicon) || '/static/favicon.ico'}" class="card-img-top" alt="Bookmark Image" loading="lazy" onerror="this.onerror=null;this.src='/static/favicon.ico';">
-                                </div>
-                            </a>
-                            <div class="bookmark-actions">
-                                <span class="edit-bookmark" title="Edit" aria-label="Edit bookmark">✏️</span>
-                                <span class="delete-bookmark" title="Delete" aria-label="Delete bookmark">🗑️</span>
-                                <span class="favorite-bookmark" title="${result.is_favorite ? 'Unfavorite' : 'Favorite'}" aria-label="${result.is_favorite ? 'Unfavorite' : 'Favorite'} bookmark">${result.is_favorite ? '⭐' : '☆'}</span>
-                            </div>
-                            <div class="card-body">
-                                <h5 class="card-title">${sanitizeHTML(result.title)}</h5>
-                            </div>
-                        </div>
-                    `;
-                    const cardDiv = card.querySelector('.card');
-                    cardDiv.addEventListener('mouseenter', function(e) {
-                        this.style.boxShadow = '0 0 10px #bb86fc';
-                        popup.innerHTML = `<strong>${sanitizeHTML(result.title)}</strong><br><br>${sanitizeHTML(result.description) || 'No description available'}`;
-                        popup.style.display = 'block';
-                        const rect = this.getBoundingClientRect();
-                        popup.style.top = (window.scrollY + rect.bottom + 5) + 'px';
-                        popup.style.left = (window.scrollX + rect.left) + 'px';
-                    });
-                    cardDiv.addEventListener('mouseleave', function() {
-                        this.style.boxShadow = '';
-                        popup.style.display = 'none';
-                    });
-                    cardDiv.addEventListener('mousemove', function(e) {
-                        popup.style.top = (e.clientY + window.scrollY + 10) + 'px';
-                        popup.style.left = (e.clientX + window.scrollX + 10) + 'px';
-                    });
-                    cardDiv.addEventListener('keydown', (e) => {
-                        if (e.key === 'Enter') cardDiv.querySelector('a').click();
-                    });
-                    cardDiv.querySelector('.edit-bookmark').addEventListener('click', async (e) => {
-                        e.stopPropagation();
-                        document.getElementById('edit-title').value = result.title || '';
-                        document.getElementById('edit-description').value = result.description || '';
-                        document.getElementById('edit-tags').value = (result.tags || []).join(', ');
-                        document.getElementById('edit-url').value = result.url || '';
-                        document.getElementById('edit-extra-metadata').value = result.extra_metadata ? JSON.stringify(result.extra_metadata, null, 2) : '';
-                        editBookmarkModal.setAttribute('data-bookmark-id', result.id);
-                        showEditIconCandidates(result.id, result.webicon, result.icon_candidates || [result.webicon]);
-
-                        // Fetch tag suggestions for edit modal
-                        const tags = await fetchTagSuggestions(result.title || '', result.description || '', result.url);
-                        renderTagSuggestions(tags, editTagSuggestions, document.getElementById('edit-tags'));
-
-                        new bootstrap.Modal(editBookmarkModal).show();
-                    });
-                    cardDiv.querySelector('.delete-bookmark').addEventListener('click', debounce((e) => {
-                        e.stopPropagation();
-                        deleteBookmarkModal.setAttribute('data-bookmark-id', result.id);
-                        new bootstrap.Modal(deleteBookmarkModal).show();
-                    }, 1000));
-                    cardDiv.querySelector('.favorite-bookmark').addEventListener('click', async (e) => {
-                        e.stopPropagation();
-                        try {
-                            const response = await fetch(`/bookmarks/${result.id}`, {
-                                method: 'PATCH',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ is_favorite: !result.is_favorite })
-                            });
-                            if (!response.ok) throw new Error('Failed to update favorite status');
-                            await loadBookmarks();
-                        } catch (error) {
-                            console.error('Favorite bookmark error:', error);
-                            alert('Error: ' + error.message);
-                        }
-                    });
-                    searchContainer.appendChild(card);
+                    renderBookmarkCard(result, searchContainer);
                 });
                 bookmarksContainer.appendChild(section);
             } catch (error) {
@@ -674,6 +619,12 @@
                 bookmarksStatus.textContent = 'Error searching bookmarks: ' + error.message;
                 bookmarksStatus.style.color = 'red';
             }
+        });
+
+        toggleViewBtn.addEventListener('click', () => {
+            isCategorizedView = !isCategorizedView;
+            toggleViewBtn.textContent = isCategorizedView ? 'Switch to Flat View' : 'Switch to Categorized View';
+            loadBookmarks();
         });
 
         loadBookmarks();
