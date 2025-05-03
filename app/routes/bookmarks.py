@@ -56,8 +56,6 @@ TAG_VOCAB = [
     "coding",
     "design",
     "business",
-    "lifestyle",
-    "self-improvement",
 ]
 
 # User-provided tags for training
@@ -317,151 +315,240 @@ def categorize_bookmarks(db: Session = Depends(get_db)):
             logger.info("No tagged bookmarks to categorize")
             return result
 
-        # Prepare data for clustering tagged bookmarks
-        texts = []
-        valid_bookmarks = []
+        # Group bookmarks by primary tag
+        tag_categories = defaultdict(list)
+        uncategorized_bookmarks = []
+        combined_vocab = TAG_VOCAB + USER_TAG_VOCAB
+
         for bookmark in tagged_bookmarks:
             try:
-                tag_response = suggest_tags(
-                    TagSuggestionRequest(
-                        title=bookmark.title or "",
-                        description=bookmark.description or "",
-                        url=bookmark.url or "",
-                    )
+                tags = (
+                    bookmark.tags.split(",")
+                    if isinstance(bookmark.tags, str) and bookmark.tags
+                    else []
                 )
-                tags = tag_response["tags"]
+                tags = [t.strip() for t in tags if t.strip()]
                 domain = urlparse(bookmark.url).netloc
                 domain_type = None
                 for key, value in DOMAIN_TYPES.items():
                     if key in domain:
                         domain_type = value
                         break
-                if domain_type:
+                if domain_type and domain_type not in tags:
                     tags.append(domain_type)
-                text = " ".join(
-                    [
-                        t
-                        for t in tags
-                        + [
-                            bookmark.title or "",
-                            bookmark.description or "",
-                            domain or "",
-                        ]
-                        if t
-                    ]
-                )
-                if text.strip():
-                    texts.append(text.strip())
-                    valid_bookmarks.append(bookmark)
+
+                # Use the first tag that matches combined_vocab as the primary tag
+                primary_tag = None
+                for tag in tags:
+                    if tag in combined_vocab:
+                        primary_tag = tag
+                        break
+
+                if primary_tag:
+                    tag_categories[primary_tag].append(bookmark)
                 else:
-                    logger.warning(f"Skipping bookmark {bookmark.id} due to empty text")
+                    uncategorized_bookmarks.append(bookmark)
             except Exception as e:
                 logger.warning(
-                    f"Skipping bookmark {bookmark.id} due to tag suggestion error: {str(e)}"
+                    f"Skipping bookmark {bookmark.id} due to tag processing error: {str(e)}"
                 )
-                continue
+                uncategorized_bookmarks.append(bookmark)
 
-        if not texts:
-            logger.info("No valid texts for categorization")
-            return result
-
-        # TF-IDF vectorization
-        try:
-            vectorizer = TfidfVectorizer(max_features=1000, stop_words="english")
-            X = vectorizer.fit_transform(texts)
-            logger.info(f"Vectorized {len(texts)} texts with {X.shape[1]} features")
-        except Exception as e:
-            logger.error(f"TF-IDF vectorization failed: {str(e)}")
-            return result
-
-        # Dynamic number of categories
-        n_categories = min(max(3, len(valid_bookmarks) // 5), 5, len(texts))
-        try:
-            kmeans = KMeans(n_clusters=n_categories, random_state=42)
-            labels = [int(label) for label in kmeans.fit_predict(X)]
-            logger.info(f"Categorization with labels: {labels}")
-        except Exception as e:
-            logger.error(f"K-Means categorization failed: {str(e)}")
-            return result
-
-        # Group bookmarks by category
-        categories = defaultdict(list)
-        for idx, (bookmark, label) in enumerate(zip(valid_bookmarks, labels)):
+        # Add tag-based categories to result
+        for tag, bookmarks in tag_categories.items():
             try:
-                extra_metadata = (
-                    json.loads(bookmark.extra_metadata)
-                    if bookmark.extra_metadata
-                    else {}
-                )
-                bookmark_dict = {
-                    "id": int(bookmark.id),
-                    "url": bookmark.url or "",
-                    "title": bookmark.title or "",
-                    "description": bookmark.description or "",
-                    "webicon": bookmark.webicon or "/static/favicon.ico",
-                    "icon_candidates": (
-                        bookmark.icon_candidates.split(",")
-                        if isinstance(bookmark.icon_candidates, str)
-                        and bookmark.icon_candidates
-                        else [bookmark.webicon or "/static/favicon.ico"]
-                    ),
-                    "extra_metadata": extra_metadata,
-                    "tags": (
-                        bookmark.tags.split(",")
-                        if isinstance(bookmark.tags, str) and bookmark.tags
-                        else []
-                    ),
-                    "is_favorite": bool(bookmark.is_favorite),
-                    "created_at": (
-                        bookmark.created_at.isoformat() if bookmark.created_at else None
-                    ),
-                    "updated_at": (
-                        bookmark.updated_at.isoformat() if bookmark.updated_at else None
-                    ),
-                    "last_used": (
-                        bookmark.last_used.isoformat() if bookmark.last_used else None
-                    ),
-                    "click_count": int(bookmark.click_count or 0),
-                }
-                categories[label].append(bookmark_dict)
-            except Exception as e:
-                logger.warning(
-                    f"Skipping bookmark {bookmark.id} due to serialization error: {str(e)}"
-                )
-                continue
-
-        # Label categories with domain types or tags
-        for category_id, bookmarks in categories.items():
-            try:
-                all_tags = []
-                domains = []
-                for bookmark in bookmarks:
-                    all_tags.extend(bookmark["tags"])
-                    domain = urlparse(bookmark["url"]).netloc
-                    domains.append(domain)
-                    for key, value in DOMAIN_TYPES.items():
-                        if key in domain and value not in all_tags:
-                            all_tags.append(value)
-                tag_counts = Counter(all_tags).most_common(2)
-                domain_counts = Counter([d.split(".")[0] for d in domains]).most_common(
-                    1
-                )
-                label_parts = [tag for tag, _ in tag_counts]
-                if domain_counts and domain_counts[0][1] > 1:
-                    label_parts.insert(0, domain_counts[0][0].capitalize())
-                label = ", ".join(label_parts) or "Miscellaneous"
                 category_data = {
-                    "category_id": int(category_id),
-                    "label": label,
-                    "bookmarks": bookmarks,
+                    "category_id": len(result),
+                    "label": tag.capitalize(),
+                    "bookmarks": [
+                        {
+                            "id": int(b.id),
+                            "url": b.url or "",
+                            "title": b.title or "",
+                            "description": b.description or "",
+                            "webicon": b.webicon or "/static/favicon.ico",
+                            "icon_candidates": (
+                                b.icon_candidates.split(",")
+                                if isinstance(b.icon_candidates, str)
+                                and b.icon_candidates
+                                else [b.webicon or "/static/favicon.ico"]
+                            ),
+                            "extra_metadata": (
+                                json.loads(b.extra_metadata) if b.extra_metadata else {}
+                            ),
+                            "tags": (
+                                b.tags.split(",")
+                                if isinstance(b.tags, str) and b.tags
+                                else []
+                            ),
+                            "is_favorite": bool(b.is_favorite),
+                            "created_at": (
+                                b.created_at.isoformat() if b.created_at else None
+                            ),
+                            "updated_at": (
+                                b.updated_at.isoformat() if b.updated_at else None
+                            ),
+                            "last_used": (
+                                b.last_used.isoformat() if b.last_used else None
+                            ),
+                            "click_count": int(b.click_count or 0),
+                        }
+                        for b in bookmarks
+                    ],
                 }
                 result.append(category_data)
             except Exception as e:
-                logger.error(f"Error serializing category {category_id}: {str(e)}")
+                logger.error(f"Error serializing category for tag {tag}: {str(e)}")
                 continue
 
+        # Categorize remaining bookmarks with K-Means
+        if uncategorized_bookmarks:
+            texts = []
+            valid_bookmarks = []
+            for bookmark in uncategorized_bookmarks:
+                try:
+                    tag_response = suggest_tags(
+                        TagSuggestionRequest(
+                            title=bookmark.title or "",
+                            description=bookmark.description or "",
+                            url=bookmark.url or "",
+                        )
+                    )
+                    tags = tag_response["tags"]
+                    domain = urlparse(bookmark.url).netloc
+                    text = " ".join(
+                        [
+                            t
+                            for t in tags
+                            + [
+                                bookmark.title or "",
+                                bookmark.description or "",
+                                domain or "",
+                            ]
+                            if t
+                        ]
+                    )
+                    if text.strip():
+                        texts.append(text.strip())
+                        valid_bookmarks.append(bookmark)
+                    else:
+                        logger.warning(
+                            f"Skipping bookmark {bookmark.id} due to empty text"
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"Skipping bookmark {bookmark.id} due to tag suggestion error: {str(e)}"
+                    )
+                    continue
+
+            if texts:
+                try:
+                    vectorizer = TfidfVectorizer(
+                        max_features=1000, stop_words="english"
+                    )
+                    X = vectorizer.fit_transform(texts)
+                    logger.info(
+                        f"Vectorized {len(texts)} texts with {X.shape[1]} features"
+                    )
+                except Exception as e:
+                    logger.error(f"TF-IDF vectorization failed: {str(e)}")
+                    # Skip K-Means and treat as miscellaneous
+                    valid_bookmarks = uncategorized_bookmarks
+                    labels = [0] * len(valid_bookmarks)
+                else:
+                    n_categories = min(max(3, len(valid_bookmarks) // 5), 5, len(texts))
+                    try:
+                        kmeans = KMeans(n_clusters=n_categories, random_state=42)
+                        labels = [int(label) for label in kmeans.fit_predict(X)]
+                        logger.info(f"K-Means categorization with labels: {labels}")
+                    except Exception as e:
+                        logger.error(f"K-Means categorization failed: {str(e)}")
+                        labels = [0] * len(valid_bookmarks)
+
+                # Group uncategorized bookmarks by K-Means labels
+                kmeans_categories = defaultdict(list)
+                for bookmark, label in zip(valid_bookmarks, labels):
+                    kmeans_categories[label].append(bookmark)
+
+                # Label K-Means categories
+                for category_id, bookmarks in kmeans_categories.items():
+                    try:
+                        all_tags = []
+                        domains = []
+                        for bookmark in bookmarks:
+                            tags = (
+                                bookmark.tags.split(",")
+                                if isinstance(bookmark.tags, str) and bookmark.tags
+                                else []
+                            )
+                            all_tags.extend(tags)
+                            domain = urlparse(bookmark.url).netloc
+                            domains.append(domain)
+                            for key, value in DOMAIN_TYPES.items():
+                                if key in domain and value not in all_tags:
+                                    all_tags.append(value)
+                        tag_counts = Counter(all_tags).most_common(2)
+                        domain_counts = Counter(
+                            [d.split(".")[0] for d in domains]
+                        ).most_common(1)
+                        label_parts = [tag for tag, _ in tag_counts]
+                        if domain_counts and domain_counts[0][1] > 1:
+                            label_parts.insert(0, domain_counts[0][0].capitalize())
+                        label = ", ".join(label_parts) or "Miscellaneous"
+                        category_data = {
+                            "category_id": len(result),
+                            "label": label,
+                            "bookmarks": [
+                                {
+                                    "id": int(b.id),
+                                    "url": b.url or "",
+                                    "title": b.title or "",
+                                    "description": b.description or "",
+                                    "webicon": b.webicon or "/static/favicon.ico",
+                                    "icon_candidates": (
+                                        b.icon_candidates.split(",")
+                                        if isinstance(b.icon_candidates, str)
+                                        and b.icon_candidates
+                                        else [b.webicon or "/static/favicon.ico"]
+                                    ),
+                                    "extra_metadata": (
+                                        json.loads(b.extra_metadata)
+                                        if b.extra_metadata
+                                        else {}
+                                    ),
+                                    "tags": (
+                                        b.tags.split(",")
+                                        if isinstance(b.tags, str) and b.tags
+                                        else []
+                                    ),
+                                    "is_favorite": bool(b.is_favorite),
+                                    "created_at": (
+                                        b.created_at.isoformat()
+                                        if b.created_at
+                                        else None
+                                    ),
+                                    "updated_at": (
+                                        b.updated_at.isoformat()
+                                        if b.updated_at
+                                        else None
+                                    ),
+                                    "last_used": (
+                                        b.last_used.isoformat() if b.last_used else None
+                                    ),
+                                    "click_count": int(b.click_count or 0),
+                                }
+                                for b in bookmarks
+                            ],
+                        }
+                        result.append(category_data)
+                    except Exception as e:
+                        logger.error(
+                            f"Error serializing K-Means category {category_id}: {str(e)}"
+                        )
+                        continue
+
         logger.info(
-            f"Categorized {len(valid_bookmarks)} bookmarks into {len(result)} categories"
+            f"Categorized {len(tagged_bookmarks)} bookmarks into {len(result)} categories"
         )
         return result
     except Exception as e:

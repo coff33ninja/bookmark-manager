@@ -323,11 +323,11 @@
             }
         }
 
-        function renderBookmarkCard(bookmark, container) {
+function renderBookmarkCard(bookmark, container) {
             bookmark.tags = Array.isArray(bookmark.tags) ? bookmark.tags : [];
             bookmark.icon_candidates = Array.isArray(bookmark.icon_candidates) ? bookmark.icon_candidates : [bookmark.webicon || '/static/favicon.ico'];
             const card = document.createElement('div');
-            card.className = 'col-md-6 col-sm-6';
+            card.className = 'col-md-8 col-sm-8';
             card.innerHTML = `
                 <div class="card bg-dark text-light bookmark-card" style="position:relative;" tabindex="0" data-bookmark-id="${bookmark.id}">
                     <a href="${sanitizeHTML(bookmark.url)}" target="_blank" style="display:block;">
