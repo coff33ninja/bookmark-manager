@@ -8,6 +8,8 @@ from .favicon_generator import download_and_validate_icon, get_icon_type, normal
 logger = logging.getLogger(__name__)
 
 def fetch_metadata(url: str) -> dict:
+    print("[SCRAPER] Running cloudscraper_meta for", url)
+    logger.info("[SCRAPER] Running cloudscraper_meta for %s", url)
     try:
         scraper = cloudscraper.create_scraper()
         response = scraper.get(url, timeout=10, allow_redirects=True)

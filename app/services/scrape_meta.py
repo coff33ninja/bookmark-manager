@@ -79,6 +79,9 @@ def download_favicon(favicon_url, base_url, scraper, save_dir):
 
 
 def main():
+    print("[SCRAPER] Running scrape_meta (standalone CLI)")
+    import logging
+    logging.info("[SCRAPER] Running scrape_meta (standalone CLI)")
     parser = argparse.ArgumentParser(
         description="Scrape metadata and download favicon via Cloudscraper."
     )

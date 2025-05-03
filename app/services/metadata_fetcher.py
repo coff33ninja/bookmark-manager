@@ -5,7 +5,6 @@ from typing import Dict
 from bs4 import BeautifulSoup
 
 from .scrape_meta_style import fetch_metadata as fetch_scrape_meta_style
-from .scrape_meta_method import fetch_metadata as fetch_scrape_meta_method
 from .cloudscraper_meta import fetch_metadata as fetch_cloudscraper_meta
 from .selenium_meta import fetch_metadata as fetch_selenium_meta
 
@@ -82,7 +81,6 @@ def fetch_metadata_with_fallbacks(url: str) -> dict:
     """
     attempts = [
         ("scrape_meta_style", fetch_scrape_meta_style),
-        ("scrape_meta_method", fetch_scrape_meta_method),
         ("cloudscraper_meta", fetch_cloudscraper_meta),
         ("selenium_meta", fetch_selenium_meta),
     ]

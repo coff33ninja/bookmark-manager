@@ -12,6 +12,8 @@ from .geckodriver_setup import setup_geckodriver
 logger = logging.getLogger(__name__)
 
 def fetch_metadata(url: str) -> dict:
+    print("[SCRAPER] Running selenium_meta for", url)
+    logger.info("[SCRAPER] Running selenium_meta for %s", url)
     try:
         driver_path = setup_geckodriver()
         options = Options()
@@ -81,8 +83,22 @@ def fetch_metadata(url: str) -> dict:
             duckduckgo_icon = fetch_duckduckgo_favicon(domain)
             if duckduckgo_icon != DEFAULT_FAVICON:
                 local_candidates.append(duckduckgo_icon)
-        metadata["webicon"] = local_candidates[0] if local_candidates else DEFAULT_FAVICON
-        metadata["icon_candidates"] = local_candidates
+        
+        # Only use icon if file exists and is a valid image
+        def is_valid_icon_path(icon_path):
+            if not icon_path or not isinstance(icon_path, str):
+                return False
+            if icon_path.startswith("/static/icons/"):
+                abs_path = os.path.join(os.path.dirname(__file__), "..", icon_path.lstrip("/"))
+                abs_path = os.path.abspath(abs_path)
+                if os.path.exists(abs_path) and os.path.getsize(abs_path) > 0:
+                    return True
+            return False
+        # Set webicon to first valid icon, else default
+        valid_icon = next((icon for icon in local_candidates if is_valid_icon_path(icon)), None)
+        metadata["webicon"] = valid_icon if valid_icon else DEFAULT_FAVICON
+        metadata["icon_candidates"] = [icon for icon in local_candidates if is_valid_icon_path(icon)]
+
         driver.quit()
         logger.info(f"selenium_meta succeeded for {url}")
         return metadata

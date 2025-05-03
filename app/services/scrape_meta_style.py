@@ -46,6 +46,8 @@ def extract_metadata(html: str) -> dict:
     return data
 
 def fetch_metadata(url: str) -> dict:
+    print("[SCRAPER] Running scrape_meta_style for", url)
+    logger.info("[SCRAPER] Running scrape_meta_style for %s", url)
     try:
         scraper = cloudscraper.create_scraper()
         html = fetch_html(url, scraper)
@@ -107,13 +109,35 @@ def fetch_metadata(url: str) -> dict:
                 local_candidates.append(duckduckgo_icon)
                 metadata["favicon_file"] = f"{domain.replace('.', '_')}_duckduckgo.ico"
 
-        metadata["webicon"] = local_candidates[0] if local_candidates else DEFAULT_FAVICON
-        metadata["icon_candidates"] = local_candidates
+        # Only use icon if file exists and is a valid image
+        def is_valid_icon_path(icon_path):
+            if not icon_path or not isinstance(icon_path, str):
+                return False
+            if icon_path.startswith("/static/icons/"):
+                abs_path = os.path.join(os.path.dirname(__file__), "..", icon_path.lstrip("/"))
+                abs_path = os.path.abspath(abs_path)
+                if os.path.exists(abs_path) and os.path.getsize(abs_path) > 0:
+                    return True
+            return False
 
-        if metadata["title"] or metadata["description"] or metadata["webicon"] != DEFAULT_FAVICON:
-            logger.info(f"scrape_meta_style succeeded for {url}")
-            return metadata
-        return None
+        # Set webicon to first valid icon, else default
+        valid_icon = next((icon for icon in local_candidates if is_valid_icon_path(icon)), None)
+        metadata["webicon"] = valid_icon if valid_icon else DEFAULT_FAVICON
+        metadata["icon_candidates"] = [icon for icon in local_candidates if is_valid_icon_path(icon)]
+
+        # Fallback to selenium_meta if no title/description
+        if not metadata["title"] and not metadata["description"]:
+            try:
+                from . import selenium_meta
+                selenium_result = selenium_meta.fetch_metadata(url)
+                if selenium_result and (selenium_result.get("title") or selenium_result.get("description")):
+                    logger.info(f"scrape_meta_style: selenium fallback used for {url}")
+                    return selenium_result
+            except Exception as fallback_exc:
+                logger.error(f"scrape_meta_style: selenium fallback failed for {url}: {fallback_exc}")
+
+        logger.info(f"scrape_meta_style result for {url}: {metadata}")
+        return metadata
     except Exception as e:
         logger.error(f"scrape_meta_style failed for {url}: {e}")
         return {"error": str(e)}
