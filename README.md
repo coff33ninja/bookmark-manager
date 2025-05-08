@@ -51,6 +51,13 @@ A simple and efficient bookmarks manager built with FastAPI/Flask that allows us
    gunicorn -w 4 -k gthread -b
    ```
 
+## Run the Application for Remote Access
+
+To allow remote access, run the application with the following command:
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
 ## Usage
 
 - Open your browser and navigate to `http://localhost:8000/website` (or the appropriate port).
