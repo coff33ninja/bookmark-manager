@@ -1,5 +1,6 @@
 import cloudscraper
 from bs4 import BeautifulSoup
+from bs4.element import Tag # Import Tag for isinstance checks
 from urllib.parse import urlparse, urljoin
 import os
 import logging
@@ -30,25 +31,40 @@ def fetch_metadata(url: str) -> dict:
             soup.find("meta", property="og:description") or
             soup.find("meta", attrs={"name": "twitter:description"})
         )
-        metadata["description"] = (
-            description_tag["content"]
-            if description_tag and description_tag.get("content")
-            else ""
-        )
+        if description_tag and isinstance(description_tag, Tag):
+            metadata["description"] = description_tag.get("content", "")
+        else:
+            metadata["description"] = ""
+
         icon_candidates = []
         for rel in ["icon", "shortcut icon"]:
             for tag in soup.find_all("link", rel=rel):
-                if tag.get("href"):
-                    icon_candidates.append(urljoin(url, tag["href"]))
+                if isinstance(tag, Tag):
+                    href = tag.get("href")
+                    if href and isinstance(href, str):  # Ensure href is a non-empty string
+                        icon_candidates.append(urljoin(url, href))
         for tag in soup.find_all("link", rel="apple-touch-icon"):
-            if tag.get("href"):
-                icon_candidates.append(urljoin(url, tag["href"]))
+            if isinstance(tag, Tag):
+                href = tag.get("href")
+                if href and isinstance(href, str):  # Ensure href is a non-empty string
+                    icon_candidates.append(urljoin(url, href))
+
         og_image = soup.find("meta", attrs={"property": "og:image"})
-        if og_image and og_image.get("content"):
-            icon_candidates.append(og_image["content"])
+        if og_image and isinstance(og_image, Tag):
+            content = og_image.get("content")
+            if content and isinstance(content, str):  # Ensure content is a non-empty string
+                icon_candidates.append(content)
+
         icon_candidates.append(urljoin(url, "/favicon.ico"))
         seen = set()
-        icon_candidates = [x for x in icon_candidates if not (x in seen or seen.add(x))]
+        # Deduplicate icon_candidates while preserving order
+        unique_icon_candidates = []
+        for x in icon_candidates:
+            if x not in seen:
+                unique_icon_candidates.append(x)
+                seen.add(x)
+        icon_candidates = unique_icon_candidates
+
         parsed = urlparse(url)
         base_name = parsed.netloc.replace(".", "_")
         ICON_DIR.mkdir(parents=True, exist_ok=True)
