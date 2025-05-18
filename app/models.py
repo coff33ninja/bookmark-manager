@@ -34,7 +34,7 @@ class Bookmark(Base):
     is_favorite = Column(Boolean, default=False)
     click_count = Column(Integer, default=0)
 
-    __table_args__ = (
+    __table_args__ = (  # type: ignore
         Index("ix_bookmark_title", "title"),
         Index("ix_bookmark_description", "description"),
         Index("ix_bookmark_url", "url"),
@@ -50,8 +50,10 @@ class BookmarkSchema(BaseModel):
     icon_candidates: Optional[List[str]] = []
     extra_metadata: Optional[dict] = None
     last_used: Optional[datetime] = None
-    created_at: datetime
-    updated_at: Optional[datetime] = None
+    created_at: datetime = datetime.utcnow()
+    updated_at: Optional[datetime] = datetime.utcnow()
+    # updated_at: Optional[datetime] = None
+
     tags: Optional[List[str]] = None
     is_favorite: bool = False
     click_count: int = 0
