@@ -120,3 +120,6 @@ drivers/geckodriver.exe
 /app/static/icons
 /app/static/recycled_bookmarks
 /app/static/recycled_icons
+
+# User specific tag vocabulary
+app/user_tags.json

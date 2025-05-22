@@ -53,6 +53,38 @@ USER_TAG_VOCAB = [
     "image-generation", "gaming-tools", "open-source", "collaboration"
 ]
 
+# Define the path to the user tags JSON file
+USER_TAGS_FILE = Path("app") / "user_tags.json"
+
+# Load user tags from JSON file if it exists
+if USER_TAGS_FILE.exists():
+    try:
+        with USER_TAGS_FILE.open("r") as f:
+            loaded_tags = json.load(f)
+        if isinstance(loaded_tags, list) and all(isinstance(tag, str) for tag in loaded_tags):
+            USER_TAG_VOCAB = loaded_tags
+            logger.info(f"Successfully loaded user tags from {USER_TAGS_FILE}")
+        else:
+            logger.warning(
+                f"Content of {USER_TAGS_FILE} is not a list of strings. "
+                "Using default USER_TAG_VOCAB."
+            )
+    except json.JSONDecodeError:
+        logger.warning(
+            f"Error decoding JSON from {USER_TAGS_FILE}. "
+            "File might be corrupted. Using default USER_TAG_VOCAB."
+        )
+    except IOError:
+        logger.error(
+            f"Could not read {USER_TAGS_FILE}. Using default USER_TAG_VOCAB."
+        )
+else:
+    logger.info(
+        f"{USER_TAGS_FILE} not found. Using default USER_TAG_VOCAB. "
+        "It will be created if new tags are added."
+    )
+
+
 # Domain to type mapping for categorization
 DOMAIN_TYPES = {
     "youtube.com": "video",
@@ -537,6 +569,15 @@ def update_bookmark(bookmark_id: int, data: dict, db: Session = Depends(get_db))
                 if tag.strip() and tag not in USER_TAG_VOCAB and tag not in TAG_VOCAB:
                     USER_TAG_VOCAB.append(tag.strip())
                     logger.info(f"Added user tag to USER_TAG_VOCAB: {tag}")
+                    # Save the updated USER_TAG_VOCAB to the JSON file
+                    try:
+                        with USER_TAGS_FILE.open("w") as f:
+                            json.dump(USER_TAG_VOCAB, f, indent=2)
+                        logger.info(f"Successfully saved updated USER_TAG_VOCAB to {USER_TAGS_FILE}")
+                    except IOError as e:
+                        logger.error(f"Could not write USER_TAG_VOCAB to {USER_TAGS_FILE}: {e}")
+                    except Exception as e:
+                        logger.error(f"An unexpected error occurred while saving USER_TAG_VOCAB to {USER_TAGS_FILE}: {e}")
         if "is_favorite" in data:
             bookmark_instance.is_favorite = data["is_favorite"]
         if "url" in data:
