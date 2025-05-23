@@ -33,6 +33,8 @@ class Bookmark(Base):
     tags = Column(Text, nullable=True)  # Comma-separated list
     is_favorite = Column(Boolean, default=False)
     click_count = Column(Integer, default=0)
+    full_text_content = Column(Text, nullable=True)
+    content_fetched_at = Column(DateTime, nullable=True)
 
     __table_args__ = (  # type: ignore
         Index("ix_bookmark_title", "title"),
@@ -57,6 +59,8 @@ class BookmarkSchema(BaseModel):
     tags: Optional[List[str]] = None
     is_favorite: bool = False
     click_count: int = 0
+    full_text_content: Optional[str] = None
+    content_fetched_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
