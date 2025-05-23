@@ -19,3 +19,4 @@ transformers
 torch
 numpy
 scikit-learn
+trafilatura
